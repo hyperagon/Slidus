@@ -13,7 +13,7 @@ Touchpad: https://en.wikipedia.org/wiki/Touchpad
 Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 
 ## Controls
-**Space** : Change Mode
-**x** / **Click on Circle** : Show Toolbar
-**z** / **Ctrl+z** : Undo
-**y** / **Ctrl+y** : Redo
+- **Space** : Change Mode
+- **x** / **Click on Circle** : Show Toolbar
+- **z** / **Ctrl+z** : Undo
+- **y** / **Ctrl+y** : Redo
