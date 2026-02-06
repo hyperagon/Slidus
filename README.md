@@ -24,8 +24,9 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - **hold right mouse-button + drag** / **2 finger drag** : Pan
 
 ### Select Mode
-- White Square = **Anchor**
-- Red Circle = **Control Node**
+- White Square = **Anchor**,dragging these takes itws **Control Nodes** along
+- Red Circle = **Control Node**, these are dragged if you drag the path
+- 
 
 <b>Red Circles</b> = <span style='color:#e74c3c'>Control Handles</span>.<br>
                 Drag <span style='color:#e74c3c'>Control Handles</span> to curve paths.</br>
