@@ -1,0 +1,2476 @@
+<!--
+    "Close / Merge" button should be in the Actions section before Import/Zoom/Export
+    
+    replace "Clear All" with "Delete" while paths are Selected
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Slidus 3.1</title>
+    <style>
+        :root {
+            --bg-color: #1e1e24;
+            --panel-bg: #2b2b36;
+            --text-color: #e0e0e0;
+            --accent-color: #4a90e2;
+            --accent-hover: #357abd;
+            --danger-color: #e74c3c;
+            --border-color: #444450;
+            --toolbar-width: 280px;
+            --control-color: #e74c3c;
+            --snap-radius: 12px;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Background Layer for Image */
+        #bg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.5;
+            transition: opacity 0.3s ease;
+        }
+
+        body.drag-over #bg-layer {
+            opacity: 0.2;
+        }
+        
+        body.drag-over::after {
+            content: "Drop Image/SVG to Set Background";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 100;
+            border: 2px solid var(--accent-color);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        /* SVG Canvas */
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            z-index: 1; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            overflow: visible; 
+            touch-action: none; 
+        }
+
+        body.mode-select #canvas {
+            cursor: grab;
+        }
+
+        body.mode-select.panning #canvas {
+            cursor: grabbing;
+        }
+
+        body.mode-select .path-element {
+            cursor: pointer; 
+            pointer-events: stroke; 
+        }
+        body.mode-draw .path-element {
+            pointer-events: none; 
+        }
+
+        /* Handles UI */
+        .handle-group {
+            pointer-events: none; 
+        }
+        .handle-group > * {
+            pointer-events: auto; 
+        }
+
+        /* Node Handles (Squares) */
+        .handle-node {
+            fill: #fff;
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            cursor: pointer; 
+        }
+        .handle-node:hover {
+            fill: var(--accent-color);
+            stroke: #fff;
+        }
+
+        /* Snap Indicator (Ghost Node) */
+        .snap-indicator {
+            display: none;
+            pointer-events: none;
+        }
+        .snap-indicator circle {
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            fill: rgba(74, 144, 226, 0.3);
+        }
+
+        /* Control Nodes (Circles) */
+        .handle-control {
+            fill: var(--bg-color);
+            stroke: var(--control-color);
+            stroke-width: 2px;
+            cursor: move;
+        }
+        .handle-control:hover {
+            fill: var(--control-color);
+            stroke: #fff;
+        }
+
+        /* Control Lines */
+        .handle-control-line {
+            stroke: var(--control-color);
+            stroke-width: 1;
+            opacity: 0.6;
+            pointer-events: none;
+        }
+
+        /* Closing Line (Dashed) */
+        .handle-closing-line {
+            stroke: var(--accent-color);
+            stroke-width: 2;
+            stroke-dasharray: 6, 4;
+            opacity: 0.8;
+            pointer-events: none;
+        }
+
+        /* Path Mover (The Cross) */
+        .path-mover-group {
+            cursor: grab;
+            pointer-events: auto;
+        }
+        .path-mover-group:active {
+            cursor: grabbing;
+        }
+        .cross-line {
+            stroke: var(--text-color);
+            stroke-width: 3;
+            stroke-linecap: round;
+            pointer-events: none;
+        }
+        .cross-hitbox {
+            fill: transparent;
+            stroke: transparent;
+        }
+        .path-mover-group:hover .cross-line {
+            stroke: var(--accent-color);
+            stroke-width: 4;
+        }
+
+        /* Toolbar Styles */
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px; 
+            width: var(--toolbar-width);
+            background-color: var(--panel-bg);
+            padding: 16px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--border-color);
+            z-index: 10; 
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        .toolbar.toolbar-right {
+            left: auto;
+            right: 20px;
+        }
+
+        .toolbar.minimized {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-10px);
+        }
+
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+        }
+        .close-btn:hover {
+            color: #fff;
+            background: rgba(255,255,255,0.1);
+        }
+
+        .toolbar-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toolbar-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .side-by-side {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .side-by-side > div {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .side-by-side > div label {
+            font-size: 0.75rem;
+            color: #888;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 8px;
+            position: relative;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: #3e3e4a;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #50505e;
+        }
+
+        button.active {
+            background-color: var(--accent-color);
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4);
+        }
+
+        button.danger {
+            background-color: rgba(231, 76, 60, 0.15);
+            color: var(--danger-color);
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+
+        button.danger:hover {
+            background-color: var(--danger-color);
+            color: white;
+        }
+
+        button.export-btn {
+            background-color: #27ae60;
+            color: white;
+            font-weight: 600;
+        }
+        button.export-btn:hover {
+            background-color: #219150;
+        }
+
+        button.import-btn {
+            background-color: #3e3e4a;
+        }
+        button.import-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        /* Smaller Button for Zoom */
+        .icon-btn {
+            flex: 0 0 40px; /* Fixed width, doesn't grow */
+            padding: 10px 0;
+            background-color: #3e3e4a;
+        }
+        .icon-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        /* Dropdown Menu Styles */
+        .dropdown-menu {
+            position: absolute;
+            top: -115px; /* Position above the button row */
+            right: 80px; /* Position near the new button */
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: none;
+            flex-direction: column;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            z-index: 50;
+            overflow: hidden;
+            min-width: 100px;
+        }
+
+        .dropdown-menu.show {
+            display: flex;
+            animation: fadeIn 0.15s ease;
+        }
+
+        .dropdown-menu button {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            justify-content: flex-start;
+            background-color: transparent;
+            border-radius: 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .dropdown-menu button:last-child {
+            border-bottom: none;
+        }
+
+        .dropdown-menu button:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .toolbar.toolbar-right .dropdown-menu {
+            right: auto;
+            left: 80px;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        input[type="color"] {
+            width: 100%;
+            height: 36px;
+            border: none;
+            background: none;
+            cursor: pointer;
+            padding: 0;
+            border-radius: 4px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+            accent-color: var(--accent-color);
+        }
+        
+        .value-display {
+            color: var(--accent-color);
+            font-weight: normal;
+        }
+
+        .status-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-top: 8px;
+            line-height: 1.4;
+            border-top: 1px solid var(--border-color);
+            padding-top: 10px;
+            background: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        /* Zoom Slider Container */
+        #zoom-controls {
+            display: none; /* Hidden by default */
+            flex-direction: column;
+            gap: 8px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 6px;
+            margin-top: 4px;
+            animation: slideDown 0.2s ease-out;
+        }
+
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .zoom-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: #ccc;
+            font-weight: 600;
+        }
+
+        /* FAB */
+        #fab {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            z-index: 5;
+            pointer-events: none;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        #fab.visible {
+            pointer-events: auto;
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        #fab:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        #fab.fab-right {
+            left: auto;
+            right: 20px;
+        }
+
+        #fab svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+
+    </style>
+</head>
+<body class="mode-select">
+
+    <!-- Hidden File Input for Import Button -->
+    <input type="file" id="file-input" accept=".svg,image/*" style="display: none;">
+
+    <div id="app">
+        <div id="bg-layer"></div>
+
+        <div id="fab" title="Open Toolbar"></div>
+
+        <nav class="toolbar" id="toolbar">
+            <button class="close-btn" id="btn-close-toolbar" title="Minimize Toolbar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">Tools</div>
+                <div class="button-row">
+                    <button id="btn-draw">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg> 
+                        Draw
+                    </button>
+                    <button id="btn-select" class="active">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4.6z"/></svg>
+                        Select
+                    </button>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-color">Stroke</label>
+                        <input type="color" id="stroke-color" value="#4a90e2">
+                    </div>
+                    <div>
+                        <label for="fill-color">Fill</label>
+                        <input type="color" id="fill-color" value="#ffffff">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-opacity">Str. Op.</label>
+                        <input type="range" id="stroke-opacity" min="0" max="1" step="0.1" value="1">
+                    </div>
+                    <div>
+                        <label for="fill-opacity">Fill Op.</label>
+                        <input type="range" id="fill-opacity" min="0" max="1" step="0.1" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Stroke Width</span>
+                    <span id="width-val" class="value-display">4px</span>
+                </div>
+                <input type="range" id="width-slider" min="1" max="100" value="4">
+            </div>
+
+            <!-- Actions Section -->
+            <div class="toolbar-group">
+                <div class="toolbar-label">Actions</div>
+                
+                <!-- 1. Close / Merge Button -->
+                <button id="btn-close-shape">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 12h16"></path>
+                        <path d="M12 4v16"></path>
+                        <circle cx="12" cy="12" r="10"></circle>
+                    </svg>
+                    Close / Merge
+                </button>
+
+                <!-- 2. Button Row with Import/Zoom/Export -->
+                <div class="button-row">
+                    <!-- Import Button -->
+                    <button id="btn-import" class="import-btn" title="Import Image or SVG">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                        </svg>
+                        Import
+                    </button>
+                    
+                    <!-- Zoom Button (Smaller, Icon Only) -->
+                    <button id="btn-zoom-ui" class="icon-btn" title="Zoom Tool">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            <line x1="11" y1="8" x2="11" y2="14"></line>
+                            <line x1="8" y1="11" x2="14" y2="11"></line>
+                        </svg>
+                    </button>
+
+                    <!-- Export Button -->
+                    <button id="btn-export" class="export-btn" title="Export as SVG">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
+                        </svg>
+                        Export
+                    </button>
+                </div>
+
+                <!-- Zoom Slider Container -->
+                <div id="zoom-controls">
+                    <div class="zoom-header">
+                        <span>Canvas Zoom (Center)</span>
+                        <span id="zoom-ui-val">100%</span>
+                    </div>
+                    <input type="range" id="zoom-ui-slider" min="0.1" max="5" step="0.1" value="1">
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="button-row">
+                    <button id="btn-clear-ref" title="Clear Background Image">
+                        Clear Ref.
+                    </button>
+
+                    <!-- NEW ORDER BUTTON -->
+                    <div style="position: relative;">
+                        <button id="btn-order-path" title="Reorder Path Layer">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                            </svg>
+                        </button>
+                        <!-- Dropdown Menu -->
+                        <div id="order-menu" class="dropdown-menu">
+                            <button data-action="top">Top (Front)</button>
+                            <button data-action="pull">Pull (Forward)</button>
+                            <button data-action="push">Push (Backward)</button>
+                            <button data-action="bottom">Bottom (Back)</button>
+                        </div>
+                    </div>
+
+                    <!-- SWAP LOGIC: These buttons now swap visibility -->
+                    <button id="btn-delete-selected" class="danger" style="display: none;">Delete</button>
+                    <button id="btn-clear" class="danger">Clear All</button>
+                </div>
+            </div>
+            
+            <div class="status-text" id="status-text">
+                <b>Select Mode:</b> Click path to select.<br>
+                <b>Drag Background</b> to Pan view.<br>
+                <b>Red Circles</b> = Control Handles (Drag to curve).<br>
+                <b>White Squares</b> = Anchors.<br>
+                <span style='color:var(--accent-color)'>Double-click Anchor</span> to delete.<br>
+                <span style='color:var(--accent-color)'>Double-click line</span> to add point.<br>
+                Drag <span style='color:#fff'>Cross</span> to move whole path.<br>
+                <b style='color:#e74c3c'>Snapping:</b> Drag anchor near other points to snap.<br>
+                <b style='color:#e74c3c'>Merge:</b> Select 2 paths & click "Close / Merge".<br>
+                <b>Backspace:</b> Clears background if nothing selected.<br>
+                <b>Zoom:</b> +/- or i/o (at mouse). , or 0 (reset).<br>
+                <b>Zoom Slider:</b> Zooms to center of screen.<br>
+                <b>Layering:</b> Use Hamburger icon to move path up/down.<br>
+                <b>Control Point:</b> Hold <b>Ctrl</b> to snap angle to 20º.
+            </div>
+        </nav>
+
+        <svg id="canvas">
+            <defs>
+                <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="2" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over" />
+                </filter>
+            </defs>
+            <!-- Viewport Group: Handles Pan and Zoom -->
+            <g id="viewport">
+                <g id="layer-paths"></g>
+                <g id="layer-handles"></g>
+                <!-- Snap Indicator Overlay -->
+                <g id="layer-snap-indicator" class="snap-indicator">
+                    <circle id="snap-ring" r="12" fill="none" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4 2" opacity="0.9"></circle>
+                    <circle id="snap-center" r="5" fill="#fff" stroke="#e74c3c" stroke-width="2"></circle>
+                </g>
+            </g>
+        </svg>
+    </div>
+
+    <script>
+        "use strict";
+        
+        const AppState = {
+            mode: 'select', 
+            isDrawing: false,
+            isDraggingHandle: false,
+            isDraggingPath: false,
+            isDraggingSegment: false, 
+            isSnapping: false,
+            isPanning: false, 
+            currentPathIndex: -1,
+            selectedPathIndices: [], 
+            activeHandleIndex: null, 
+            activeSegmentIndex: null, 
+            dragStartMouse: { x: 0, y: 0 },
+            panStartMouse: { x: 0, y: 0 }, 
+            paths: [], 
+            rawPoints: [], 
+            styles: {
+                strokeColor: '#4a90e2',
+                fillColor: '#ffffff',
+                strokeOpacity: 1.0,
+                fillOpacity: 0.0, 
+                width: 4,
+                drawThreshold: 10,
+                autoClose: false,
+                snapThreshold: 12
+            },
+            toolbarState: {
+                isLeft: true,
+                isToolbarOpen: true,
+                bufferDistance: 40
+            },
+            snapTarget: null,
+            // Viewport State for Zoom/Pan
+            view: { x: 0, y: 0, zoom: 1 },
+            lastMouse: { x: 0, y: 0 },
+            dragStartControlLength: 0 
+        };
+
+        const History = {
+            undoStack: [],
+            redoStack: [],
+            limit: 50
+        };
+
+        const UI = {
+            app: document.getElementById('app'),
+            bgLayer: document.getElementById('bg-layer'),
+            canvas: document.getElementById('canvas'),
+            viewport: document.getElementById('viewport'), 
+            layerPaths: document.getElementById('layer-paths'),
+            layerHandles: document.getElementById('layer-handles'),
+            layerSnap: document.getElementById('layer-snap-indicator'),
+            snapRing: document.getElementById('snap-ring'),
+            snapCenter: document.getElementById('snap-center'),
+            toolbar: document.getElementById('toolbar'),
+            fab: document.getElementById('fab'),
+            btnDraw: document.getElementById('btn-draw'),
+            btnSelect: document.getElementById('btn-select'),
+            btnCloseShape: document.getElementById('btn-close-shape'),
+            btnExport: document.getElementById('btn-export'),
+            btnImport: document.getElementById('btn-import'),
+            fileInput: document.getElementById('file-input'),
+            btnDelete: document.getElementById('btn-delete-selected'),
+            btnClear: document.getElementById('btn-clear'),
+            btnClearRef: document.getElementById('btn-clear-ref'),
+            btnCloseToolbar: document.getElementById('btn-close-toolbar'),
+            // New Order Elements
+            btnOrderPath: document.getElementById('btn-order-path'),
+            orderMenu: document.getElementById('order-menu'),
+            // Zoom UI Elements
+            btnZoomUI: document.getElementById('btn-zoom-ui'),
+            zoomControls: document.getElementById('zoom-controls'),
+            zoomSlider: document.getElementById('zoom-ui-slider'),
+            zoomVal: document.getElementById('zoom-ui-val'),
+            // Style Elements
+            strokeColor: document.getElementById('stroke-color'),
+            fillColor: document.getElementById('fill-color'),
+            strokeOpacity: document.getElementById('stroke-opacity'),
+            fillOpacity: document.getElementById('fill-opacity'),
+            widthSlider: document.getElementById('width-slider'),
+            widthVal: document.getElementById('width-val'),
+            statusText: document.getElementById('status-text'),
+            body: document.body
+        };
+
+        const Icons = {
+            draw: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
+            select: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4.6z"/></svg>',
+            menu: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>'
+        };
+
+        function saveState() {
+            const snapshot = JSON.parse(JSON.stringify(AppState.paths));
+            History.undoStack.push(snapshot);
+            if (History.undoStack.length > History.limit) History.undoStack.shift();
+            History.redoStack = []; 
+        }
+
+        function undo() {
+            if (AppState.isDrawing) {
+                cancelDrawing();
+                return;
+            }
+            if (History.undoStack.length === 0) return;
+            History.redoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const previousState = History.undoStack.pop();
+            AppState.paths = previousState;
+            AppState.selectedPathIndices = AppState.selectedPathIndices.filter(idx => idx < AppState.paths.length);
+            rebuildCanvas();
+        }
+
+        function redo() {
+            if (AppState.isDrawing) return;
+            if (History.redoStack.length === 0) return;
+            History.undoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const nextState = History.redoStack.pop();
+            AppState.paths = nextState;
+            AppState.selectedPathIndices = AppState.selectedPathIndices.filter(idx => idx < AppState.paths.length);
+            rebuildCanvas();
+        }
+
+        function cancelDrawing() {
+            AppState.isDrawing = false;
+            AppState.isSnapping = false;
+            AppState.snapTarget = null;
+            UI.layerSnap.style.display = 'none';
+            AppState.rawPoints = [];
+            const currentEl = UI.layerPaths.lastElementChild;
+            if (currentEl) currentEl.remove();
+            AppState.currentPathIndex = -1;
+        }
+
+        function rebuildCanvas() {
+            UI.layerPaths.innerHTML = '';
+            UI.layerHandles.innerHTML = '';
+            AppState.paths.forEach((pathData, index) => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("class", "path-element");
+                pathEl.style.isolation = "isolate";
+                
+                pathEl.setAttribute("stroke", pathData.strokeColor);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor);
+                pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                pathEl.dataset.index = index;
+                
+                pathEl.addEventListener('dblclick', (e) => handlePathDoubleClick(e, index));
+
+                UI.layerPaths.appendChild(pathEl);
+                updatePathD(index);
+            });
+            renderSelectionHandles();
+        }
+
+        function getSVGPoint(clientX, clientY) {
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            return pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+        }
+
+        function setStatus(msg) {
+            UI.statusText.innerHTML = msg;
+        }
+
+        function checkToolbarProximity(clientX) {
+            if (AppState.mode !== 'draw') return;
+            const activeElement = AppState.toolbarState.isToolbarOpen ? UI.toolbar : UI.fab;
+            if (!AppState.toolbarState.isToolbarOpen && !UI.fab.classList.contains('visible')) return;
+            const rect = activeElement.getBoundingClientRect();
+            const buffer = AppState.toolbarState.bufferDistance; 
+
+            if (AppState.toolbarState.isLeft) {
+                if (clientX < (rect.right + buffer)) moveToolbarTo('right');
+            } else {
+                if (clientX > (rect.left - buffer)) moveToolbarTo('left');
+            }
+        }
+
+        function moveToolbarTo(side) {
+            if (side === 'right') {
+                AppState.toolbarState.isLeft = false;
+                UI.toolbar.classList.remove('toolbar-left');
+                UI.toolbar.classList.add('toolbar-right');
+                UI.fab.classList.remove('fab-left');
+                UI.fab.classList.add('fab-right');
+            } else {
+                AppState.toolbarState.isLeft = true;
+                UI.toolbar.classList.remove('toolbar-right');
+                UI.toolbar.classList.add('toolbar-left');
+                UI.fab.classList.remove('fab-right');
+                UI.fab.classList.add('fab-left');
+            }
+        }
+
+        function toggleToolbar() {
+            AppState.toolbarState.isToolbarOpen = !AppState.toolbarState.isToolbarOpen;
+            if (AppState.toolbarState.isToolbarOpen) {
+                UI.toolbar.classList.remove('minimized');
+                UI.fab.classList.remove('visible');
+            } else {
+                UI.toolbar.classList.add('minimized');
+                UI.fab.classList.add('visible');
+                updateFabIcon();
+            }
+        }
+
+        function updateFabIcon() {
+            if (AppState.mode === 'draw') {
+                UI.fab.innerHTML = Icons.draw;
+                UI.fab.title = "Draw Mode - Click to Open Toolbar";
+            } else {
+                UI.fab.innerHTML = Icons.select;
+                UI.fab.title = "Select Mode - Click to Open Toolbar";
+            }
+        }
+
+        function updateCloseShapeUI() {
+            if (AppState.selectedPathIndices.length === 1) {
+                const idx = AppState.selectedPathIndices[0];
+                const path = AppState.paths[idx];
+                if (path.closed) {
+                    UI.btnCloseShape.classList.add('active');
+                } else {
+                    UI.btnCloseShape.classList.remove('active');
+                }
+            } else {
+                if (AppState.styles.autoClose) {
+                    UI.btnCloseShape.classList.add('active');
+                } else {
+                    UI.btnCloseShape.classList.remove('active');
+                }
+            }
+        }
+
+        // --- ORDERING LOGIC ---
+
+        function toggleOrderMenu() {
+            UI.orderMenu.classList.toggle('show');
+        }
+
+        function closeOrderMenu() {
+            UI.orderMenu.classList.remove('show');
+        }
+
+        function reorderPath(action) {
+            if (AppState.selectedPathIndices.length === 0) {
+                closeOrderMenu();
+                setStatus("Select a path first to reorder.");
+                return;
+            }
+
+            saveState();
+            
+            const indices = [...AppState.selectedPathIndices].sort((a, b) => a - b);
+            const selectedPaths = indices.map(i => AppState.paths[i]);
+
+            if (action === 'top') {
+                AppState.paths = AppState.paths.filter(p => !selectedPaths.includes(p));
+                AppState.paths.push(...selectedPaths);
+            } 
+            else if (action === 'bottom') {
+                AppState.paths = AppState.paths.filter(p => !selectedPaths.includes(p));
+                AppState.paths.unshift(...selectedPaths);
+            }
+            else if (action === 'push') {
+                for (let i = indices.length - 1; i >= 0; i--) {
+                    const idx = indices[i];
+                    if (idx > 0) {
+                        const temp = AppState.paths[idx];
+                        AppState.paths[idx] = AppState.paths[idx - 1];
+                        AppState.paths[idx - 1] = temp;
+                    }
+                }
+            }
+            else if (action === 'pull') {
+                for (let i = 0; i < indices.length; i++) {
+                    const idx = indices[i];
+                    if (idx < AppState.paths.length - 1) {
+                        const temp = AppState.paths[idx];
+                        AppState.paths[idx] = AppState.paths[idx + 1];
+                        AppState.paths[idx + 1] = temp;
+                    }
+                }
+            }
+
+            rebuildCanvas();
+
+            const newIndices = [];
+            AppState.paths.forEach((p, i) => {
+                if (selectedPaths.includes(p)) {
+                    newIndices.push(i);
+                }
+            });
+            AppState.selectedPathIndices = newIndices;
+            updateSelectionVisuals();
+            closeOrderMenu();
+            setStatus(`Paths moved to ${action}.`);
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!UI.btnOrderPath.contains(e.target) && !UI.orderMenu.contains(e.target)) {
+                closeOrderMenu();
+            }
+        });
+
+        UI.btnOrderPath.addEventListener('click', (e) => {
+            e.stopPropagation();
+            toggleOrderMenu();
+        });
+
+        UI.orderMenu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                reorderPath(e.target.dataset.action);
+            });
+        });
+
+
+        // --- ZOOM & PAN LOGIC ---
+
+        function updateViewportTransform() {
+            UI.viewport.setAttribute("transform", `translate(${AppState.view.x}, ${AppState.view.y}) scale(${AppState.view.zoom})`);
+            if(UI.zoomControls.style.display === 'flex') {
+                UI.zoomSlider.value = AppState.view.zoom;
+                UI.zoomVal.textContent = Math.round(AppState.view.zoom * 100) + '%';
+            }
+        }
+
+        function zoom(factor) {
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = AppState.lastMouse.x;
+            pt.y = AppState.lastMouse.y;
+
+            const worldPt = pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+
+            const newZoom = Math.max(0.1, AppState.view.zoom * factor);
+
+            AppState.view.x = AppState.lastMouse.x - (worldPt.x * newZoom);
+            AppState.view.y = AppState.lastMouse.y - (worldPt.y * newZoom);
+            AppState.view.zoom = newZoom;
+
+            updateViewportTransform();
+        }
+
+        function zoomCentered(newZoomLevel) {
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = centerX;
+            pt.y = centerY;
+
+            const worldPt = pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+
+            const newZoom = Math.max(0.1, Math.min(5, parseFloat(newZoomLevel)));
+
+            AppState.view.x = centerX - (worldPt.x * newZoom);
+            AppState.view.y = centerY - (worldPt.y * newZoom);
+            AppState.view.zoom = newZoom;
+
+            updateViewportTransform();
+        }
+
+        function resetView() {
+            AppState.view.x = 0;
+            AppState.view.y = 0;
+            AppState.view.zoom = 1;
+            updateViewportTransform();
+            setStatus("View reset to center.");
+        }
+
+        // --- MATH & LOGIC ---
+
+        function lerp(a, b, t) { return a + (b - a) * t; }
+        
+        function cubicBezier(p0, cp0, cp1, p1, t) {
+            const oneMinusT = 1 - t;
+            return {
+                x: Math.pow(oneMinusT, 3) * p0.x +
+                   3 * Math.pow(oneMinusT, 2) * t * cp0.x +
+                   3 * oneMinusT * Math.pow(t, 2) * cp1.x +
+                   Math.pow(t, 3) * p1.x,
+                y: Math.pow(oneMinusT, 3) * p0.y +
+                   3 * Math.pow(oneMinusT, 2) * t * cp0.y +
+                   3 * oneMinusT * Math.pow(t, 2) * cp1.y +
+                   Math.pow(t, 3) * p1.y
+            };
+        }
+
+        function getBezierSegmentDistance(p0, cp0, cp1, p1, pt) {
+            let minDist = Infinity;
+            for (let t = 0; t <= 1; t += 0.05) {
+                const b = cubicBezier(p0, cp0, cp1, p1, t);
+                const d = Math.hypot(b.x - pt.x, b.y - pt.y);
+                if (d < minDist) minDist = d;
+            }
+            return minDist;
+        }
+
+        function simplifyPath(points, tolerance) {
+            if (points.length <= 2) return points;
+
+            let filtered = [points[0]];
+            for (let i = 1; i < points.length; i++) {
+                const d = Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
+                if (d > 5) { 
+                    filtered.push(points[i]);
+                }
+            }
+            if (filtered[filtered.length-1] !== points[points.length-1]) {
+                filtered.push(points[points.length-1]);
+            }
+            points = filtered;
+
+            points = ramerDouglasPeucker(points, tolerance);
+
+            let optimized = points;
+            let changed = true;
+            const areaThreshold = 400; 
+            
+            for(let pass=0; pass<2; pass++) {
+                changed = false;
+                if (optimized.length <= 2) break;
+                
+                const nextOpt = [optimized[0]];
+                for (let i = 1; i < optimized.length - 1; i++) {
+                    const area = Math.abs(
+                        (optimized[i-1].x * (optimized[i].y - optimized[i+1].y) +
+                         optimized[i].x * (optimized[i+1].y - optimized[i-1].y) +
+                         optimized[i+1].x * (optimized[i-1].y - optimized[i].y)) / 2
+                    );
+                    
+                    if (area < areaThreshold) {
+                        changed = true; 
+                    } else {
+                        nextOpt.push(optimized[i]);
+                    }
+                }
+                nextOpt.push(optimized[optimized.length-1]);
+                optimized = nextOpt;
+            }
+
+            return optimized;
+        }
+
+        function ramerDouglasPeucker(points, epsilon) {
+            if (points.length <= 2) return points;
+            
+            let dmax = 0, index = 0, end = points.length - 1;
+            for (let i = 1; i < end; i++) {
+                const d = pointLineDistance(points[i], points[0], points[end]);
+                if (d > dmax) { index = i; dmax = d; }
+            }
+            if (dmax > epsilon) {
+                return ramerDouglasPeucker(points.slice(0, index + 1), epsilon).slice(0, -1).concat(ramerDouglasPeucker(points.slice(index, end + 1), epsilon));
+            }
+            return [points[0], points[end]];
+        }
+
+        function pointLineDistance(point, start, end) {
+            let x = start.x, y = start.y, dx = end.x - x, dy = end.y - y;
+            if (dx !== 0 || dy !== 0) {
+                const t = ((point.x - x) * dx + (point.y - y) * dy) / (dx * dx + dy * dy);
+                if (t > 1) { x = end.x; y = end.y; }
+                else if (t > 0) { x += dx * t; y += dy * t; }
+            }
+            return Math.hypot(point.x - x, point.y - y);
+        }
+
+        function calculateControlPoints(points) {
+            const result = points.map(p => ({ p: {...p}, cIn: {...p}, cOut: {...p} }));
+            const n = points.length;
+
+            if (n < 2) return result;
+
+            const tension = 0.25; 
+
+            for (let i = 0; i < n; i++) {
+                const prev = points[Math.max(0, i - 1)];
+                const curr = points[i];
+                const next = points[Math.min(n - 1, i + 1)];
+                
+                const tx = (next.x - prev.x);
+                const ty = (next.y - prev.y);
+
+                let cpOutX = curr.x + tx * tension;
+                let cpOutY = curr.y + ty * tension;
+                let cpInX = curr.x - tx * tension;
+                let cpInY = curr.y - ty * tension;
+
+                if (i < n - 1) {
+                    const dx = next.x - curr.x;
+                    const dy = next.y - curr.y;
+                    const distToNext = Math.hypot(dx, dy);
+                    const cpDx = cpOutX - curr.x;
+                    const cpDy = cpOutY - curr.y;
+                    const cpDist = Math.hypot(cpDx, cpDy);
+                    const maxLen = distToNext * 0.5;
+                    if (cpDist > maxLen) {
+                        const ratio = maxLen / cpDist;
+                        cpOutX = curr.x + cpDx * ratio;
+                        cpOutY = curr.y + cpDy * ratio;
+                    }
+                }
+
+                if (i > 0) {
+                    const dx = prev.x - curr.x;
+                    const dy = prev.y - curr.y;
+                    const distToPrev = Math.hypot(dx, dy);
+                    const cpDx = cpInX - curr.x;
+                    const cpDy = cpInY - curr.y;
+                    const cpDist = Math.hypot(cpDx, cpDy);
+                    const maxLen = distToPrev * 0.5;
+                    if (cpDist > maxLen) {
+                        const ratio = maxLen / cpDist;
+                        cpInX = curr.x + cpDx * ratio;
+                        cpInY = curr.y + cpDy * ratio;
+                    }
+                }
+
+                result[i].cOut = { x: cpOutX, y: cpOutY };
+                result[i].cIn = { x: cpInX, y: cpInY };
+            }
+
+            result[0].cIn = { x: result[0].p.x, y: result[0].p.y }; 
+            result[n-1].cOut = { x: result[n-1].p.x, y: result[n-1].p.y };
+
+            return result;
+        }
+
+        function getNearestSegmentIndex(pathData, pt) {
+            const pts = pathData.points;
+            let minDist = Infinity;
+            let bestIndex = -1;
+
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p1 = pts[i];
+                const p2 = pts[i+1];
+                const dist = getBezierSegmentDistance(p1.p, p1.cOut, p2.cIn, p2.p, pt);
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestIndex = i;
+                }
+            }
+            return { index: bestIndex, dist: minDist };
+        }
+
+        function getTFromPoint(p0, cp0, cp1, p1, pt) {
+            let bestT = 0.5;
+            let bestDist = Infinity;
+            for(let t = 0; t <= 1; t += 0.05) {
+                const b = cubicBezier(p0, cp0, cp1, p1, t);
+                const d = Math.hypot(b.x - pt.x, b.y - pt.y);
+                if (d < bestDist) {
+                    bestDist = d;
+                    bestT = t;
+                }
+            }
+            return { t: bestT, dist: bestDist };
+        }
+
+        function splitBezierCurve(p0, cp0, cp1, p1, t) {
+            const u = 1 - t;
+            const pA = { x: u*p0.x + t*cp0.x, y: u*p0.y + t*cp0.y };
+            const pB = { x: u*cp0.x + t*cp1.x, y: u*cp0.y + t*cp1.y };
+            const pC = { x: u*cp1.x + t*p1.x, y: u*cp1.y + t*p1.y };
+
+            const pD = { x: u*pA.x + t*pB.x, y: u*pA.y + t*pB.y };
+            const pE = { x: u*pB.x + t*pC.x, y: u*pB.y + t*pC.y };
+
+            const pMid = { x: u*pD.x + t*pE.x, y: u*pD.y + t*pE.y };
+
+            const left = { p: p0, cOut: pA, cIn: { x: p0.x, y: p0.y } };
+            const right = { p: pMid, cOut: pE, cIn: pC };
+            
+            return {
+                leftNode: left,
+                splitNode: { p: pMid, cIn: pD, cOut: pE },
+                rightNode: { p: p1, cIn: pC }
+            };
+        }
+
+        // --- DRAWING ---
+
+        function startDrawing(x, y) {
+            AppState.isDrawing = true;
+            AppState.rawPoints = [{ x, y }];
+            
+            const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("class", "path-element");
+            pathEl.setAttribute("stroke", AppState.styles.strokeColor);
+            pathEl.setAttribute("fill", AppState.styles.fillColor);
+            pathEl.setAttribute("stroke-width", AppState.styles.width);
+            pathEl.setAttribute("stroke-opacity", AppState.styles.strokeOpacity);
+            pathEl.setAttribute("fill-opacity", AppState.styles.fillOpacity);
+            pathEl.setAttribute("stroke-linecap", "round");
+            pathEl.setAttribute("stroke-linejoin", "round");
+            pathEl.dataset.index = AppState.paths.length;
+            UI.layerPaths.appendChild(pathEl);
+        }
+
+        function drawMove(x, y) {
+            if (!AppState.isDrawing) return;
+            const lastPoint = AppState.rawPoints[AppState.rawPoints.length - 1];
+            const dist = Math.hypot(x - lastPoint.x, y - lastPoint.y);
+            
+            if (dist > AppState.styles.drawThreshold) {
+                AppState.rawPoints.push({ x, y });
+                const d = AppState.rawPoints.reduce((acc, p, i) => {
+                    return acc + (i === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : ` L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`);
+                }, "");
+                const pathEl = UI.layerPaths.lastElementChild;
+                if (pathEl) pathEl.setAttribute("d", d);
+            }
+        }
+
+        function stopDrawing() {
+            if (!AppState.isDrawing) return;
+            AppState.isDrawing = false;
+            
+            if (AppState.rawPoints.length > 1) {
+                const anchors = simplifyPath(AppState.rawPoints, 20.0);
+                const splinePoints = calculateControlPoints(anchors);
+
+                const newPath = {
+                    strokeColor: AppState.styles.strokeColor,
+                    fillColor: AppState.styles.fillColor,
+                    strokeOpacity: AppState.styles.strokeOpacity,
+                    fillOpacity: AppState.styles.fillOpacity,
+                    width: parseInt(AppState.styles.width),
+                    points: splinePoints,
+                    closed: AppState.styles.autoClose
+                };
+                
+                AppState.paths.push(newPath);
+                AppState.currentPathIndex = AppState.paths.length - 1;
+                
+                const newEl = UI.layerPaths.lastElementChild;
+                newEl.addEventListener('dblclick', (e) => handlePathDoubleClick(e, AppState.currentPathIndex));
+
+                updatePathD(AppState.currentPathIndex);
+                
+                AppState.selectedPathIndices = [AppState.currentPathIndex];
+                updateSelectionVisuals();
+                
+                saveState();
+            } else {
+                const pathEl = UI.layerPaths.lastElementChild;
+                if(pathEl) pathEl.remove();
+            }
+            AppState.rawPoints = [];
+        }
+
+        function updatePathD(index) {
+            const pathData = AppState.paths[index];
+            if (!pathData || !pathData.points) return;
+            const pts = pathData.points;
+            if (pts.length === 0) return;
+
+            let d = `M ${pts[0].p.x.toFixed(1)} ${pts[0].p.y.toFixed(1)}`;
+            
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p1 = pts[i];
+                const p2 = pts[i+1];
+                d += ` C ${p1.cOut.x.toFixed(1)} ${p1.cOut.y.toFixed(1)}, ${p2.cIn.x.toFixed(1)} ${p2.cIn.y.toFixed(1)}, ${p2.p.x.toFixed(1)} ${p2.p.y.toFixed(1)}`;
+            }
+
+            if (pathData.closed) {
+                d += " Z";
+            }
+
+            const pathEl = UI.layerPaths.querySelector(`path[data-index="${index}"]`);
+            if (pathEl) pathEl.setAttribute("d", d);
+        }
+
+        // --- SELECTION & EDITING ---
+
+        function toggleSelection(index, shiftKey) {
+            if (index === -1) {
+                AppState.selectedPathIndices = [];
+                updateSelectionVisuals();
+                return;
+            }
+
+            if (shiftKey) {
+                const idxPos = AppState.selectedPathIndices.indexOf(index);
+                if (idxPos > -1) {
+                    AppState.selectedPathIndices.splice(idxPos, 1); 
+                } else {
+                    AppState.selectedPathIndices.push(index); 
+                }
+            } else {
+                AppState.selectedPathIndices = [index];
+            }
+            updateSelectionVisuals();
+        }
+
+        function updateSelectionVisuals() {
+            if (AppState.selectedPathIndices.length > 0) {
+                const idx = AppState.selectedPathIndices[0];
+                const pathData = AppState.paths[idx];
+                
+                UI.widthSlider.value = pathData.width;
+                UI.widthVal.textContent = pathData.width + "px";
+                UI.strokeColor.value = pathData.strokeColor;
+                UI.fillColor.value = pathData.fillColor;
+                UI.strokeOpacity.value = pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1;
+                UI.fillOpacity.value = pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0;
+
+                UI.btnDelete.style.display = "block";
+                UI.btnClear.style.display = "none"; // Hide Clear All when selection exists
+                setStatus(`Selected ${AppState.selectedPathIndices.length} path(s). Zoom: ${(AppState.view.zoom * 100).toFixed(0)}%`);
+                updateCloseShapeUI();
+            } else {
+                UI.widthSlider.value = AppState.styles.width;
+                UI.widthVal.textContent = AppState.styles.width + "px";
+                UI.strokeColor.value = AppState.styles.strokeColor;
+                UI.fillColor.value = AppState.styles.fillColor;
+                UI.strokeOpacity.value = AppState.styles.strokeOpacity;
+                UI.fillOpacity.value = AppState.styles.fillOpacity;
+
+                UI.btnDelete.style.display = "none";
+                UI.btnClear.style.display = "block"; // Show Clear All when nothing selected
+                setStatus("Select Mode. Drag background to Pan.");
+                updateCloseShapeUI();
+            }
+
+            renderSelectionHandles();
+        }
+
+        function clearHandles() {
+            UI.layerHandles.innerHTML = '';
+        }
+
+        function renderSelectionHandles() {
+            clearHandles();
+            AppState.selectedPathIndices.forEach(index => {
+                renderHandlesForPath(index);
+            });
+        }
+
+        function renderHandlesForPath(index) {
+            const pathData = AppState.paths[index];
+            const pts = pathData.points;
+            
+            const gLines = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const gHandles = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            gHandles.setAttribute("class", "handle-group");
+
+            pts.forEach((pt, i) => {
+                if (i < pts.length - 1) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cOut.x); l.setAttribute("y2", pt.cOut.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+                if (i > 0) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cIn.x); l.setAttribute("y2", pt.cIn.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+
+                createHandle(gHandles, pt.p, 'anchor', i, index);
+
+                if (i < pts.length - 1) {
+                    createHandle(gHandles, pt.cOut, 'control', i, index, 'cOut');
+                }
+                if (i > 0) {
+                    createHandle(gHandles, pt.cIn, 'control', i, index, 'cIn');
+                }
+            });
+
+            if (pathData.closed && pts.length > 2) {
+                const first = pts[0];
+                const last = pts[pts.length - 1];
+                const closingLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                closingLine.setAttribute("x1", last.p.x); 
+                closingLine.setAttribute("y1", last.p.y);
+                closingLine.setAttribute("x2", first.p.x); 
+                closingLine.setAttribute("y2", first.p.y);
+                closingLine.setAttribute("class", "handle-closing-line");
+                gLines.appendChild(closingLine);
+            }
+
+            UI.layerHandles.appendChild(gLines);
+            UI.layerHandles.appendChild(gHandles);
+
+            const minX = Math.min(...pts.map(pt => pt.p.x));
+            const minY = Math.min(...pts.map(pt => pt.p.y));
+
+            const moverOffset = 25;
+            
+            const moverGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            moverGroup.setAttribute("transform", `translate(${minX - moverOffset}, ${minY - moverOffset})`);
+            moverGroup.setAttribute("class", "path-mover-group");
+            
+            const mSize = 10;
+            const hLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLine.setAttribute("x1", -mSize); hLine.setAttribute("y1", 0);
+            hLine.setAttribute("x2", mSize); hLine.setAttribute("y2", 0);
+            hLine.setAttribute("class", "cross-line");
+            
+            const vLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLine.setAttribute("x1", 0); vLine.setAttribute("y1", -mSize);
+            vLine.setAttribute("x2", 0); vLine.setAttribute("y2", mSize);
+            vLine.setAttribute("class", "cross-line");
+            
+            const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            hitbox.setAttribute("x", -mSize); hitbox.setAttribute("y", -mSize);
+            hitbox.setAttribute("width", mSize*2); hitbox.setAttribute("height", mSize*2);
+            hitbox.setAttribute("class", "cross-hitbox");
+            
+            moverGroup.appendChild(hLine);
+            moverGroup.appendChild(vLine);
+            moverGroup.appendChild(hitbox);
+            
+            moverGroup.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                startDraggingPath(e, index);
+            });
+            
+            UI.layerHandles.appendChild(moverGroup);
+        }
+
+        function createHandle(container, point, type, index, pathIndex, subType = '') {
+            const el = document.createElementNS("http://www.w3.org/2000/svg", type === 'anchor' ? 'rect' : 'circle');
+            const size = 6;
+            const radius = 4;
+
+            if (type === 'anchor') {
+                el.setAttribute("x", point.x - size/2);
+                el.setAttribute("y", point.y - size/2);
+                el.setAttribute("width", size);
+                el.setAttribute("height", size);
+                el.setAttribute("class", "handle-node");
+                
+                el.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    e.preventDefault(); 
+                    deletePoint(index, pathIndex);
+                });
+
+            } else {
+                el.setAttribute("cx", point.x);
+                el.setAttribute("cy", point.y);
+                el.setAttribute("r", radius);
+                el.setAttribute("class", "handle-control");
+            }
+
+            el.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                startDraggingHandle(e, index, subType, pathIndex);
+            });
+            container.appendChild(el);
+        }
+
+        function handlePathDoubleClick(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            const pathData = AppState.paths[pathIndex];
+            const pts = pathData.points;
+            
+            if (pts.length < 2) return;
+
+            let minDist = Infinity;
+            let bestIndex = -1;
+            let bestT = 0.5;
+
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p0 = pts[i];
+                const p1 = pts[i+1];
+                
+                const { t, dist } = getTFromPoint(p0.p, p0.cOut, p1.cIn, p1.p, pt);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    bestIndex = i;
+                    bestT = t;
+                }
+            }
+            
+            if (minDist < 20 && bestIndex !== -1) {
+                saveState();
+                
+                const p0 = pts[bestIndex];
+                const p1 = pts[bestIndex+1];
+
+                const { leftNode, splitNode, rightNode } = splitBezierCurve(
+                    p0.p, p0.cOut, p1.cIn, p1.p, bestT
+                );
+
+                pts[bestIndex].cOut = leftNode.cOut;
+                pts[bestIndex+1].cIn = rightNode.cIn;
+
+                pts.splice(bestIndex + 1, 0, splitNode);
+
+                updatePathD(pathIndex);
+                renderSelectionHandles();
+            }
+        }
+
+        function deletePoint(index, pathIndex) {
+            const pathData = AppState.paths[pathIndex];
+            if (!pathData || pathData.points.length <= 2) return;
+
+            saveState();
+            
+            pathData.points.splice(index, 1);
+            
+            const tension = 0.25; 
+
+            if (index < pathData.points.length) {
+                const curr = pathData.points[index];
+                if (curr && index > 0) {
+                    const prev = pathData.points[index - 1];
+                    const next = pathData.points[index + 1] || {p: curr.p}; 
+                    const tangentX = (next.p.x - prev.p.x) * tension;
+                    const tangentY = (next.p.y - prev.p.y) * tension;
+                    curr.cIn = { x: curr.p.x - tangentX, y: curr.p.y - tangentY };
+                }
+            }
+
+            if (index - 1 >= 0) {
+                const prev = pathData.points[index - 1];
+                const curr = pathData.points[index];
+                const next = pathData.points[index + 1] || {p: curr.p};
+                if (prev) {
+                    const tangentX = (next.p.x - prev.p.x) * tension;
+                    const tangentY = (next.p.y - prev.p.y) * tension;
+                    prev.cOut = { x: prev.p.x + tangentX, y: prev.p.y + tangentY };
+                }
+            }
+
+            if (index === 0 && pathData.points.length > 0) {
+                pathData.points[0].cIn = { ...pathData.points[0].p };
+            }
+
+            updatePathD(pathIndex);
+            renderSelectionHandles();
+        }
+
+        function startDraggingHandle(e, index, subType, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.stopPropagation();
+            AppState.isDraggingHandle = true;
+            AppState.activeHandleIndex = { index, subType, pathIndex };
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+            
+            if (subType === '') {
+                AppState.snapTarget = null;
+            } else {
+                const pathData = AppState.paths[pathIndex];
+                const anchor = pathData.points[index].p;
+                const controlPoint = subType === 'cOut' ? pathData.points[index].cOut : pathData.points[index].cIn;
+                AppState.dragStartControlLength = Math.hypot(controlPoint.x - anchor.x, controlPoint.y - anchor.y);
+            }
+        }
+
+        function startDraggingPath(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            
+            if (!AppState.selectedPathIndices.includes(pathIndex)) {
+                toggleSelection(pathIndex, e.shiftKey);
+            }
+
+            AppState.isDraggingPath = true;
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function startDraggingSegment(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            const pathData = AppState.paths[pathIndex];
+            
+            const { index, dist } = getNearestSegmentIndex(pathData, pt);
+            
+            if (index !== -1 && dist < 20) {
+                toggleSelection(pathIndex, e.shiftKey);
+                AppState.isDraggingSegment = true;
+                AppState.activeSegmentIndex = index;
+                AppState.activePathIndex = pathIndex; 
+                AppState.dragStartMouse = { x: pt.x, y: pt.y };
+            } else {
+                toggleSelection(pathIndex, e.shiftKey);
+            }
+        }
+
+        // --- SNAP LOGIC ---
+        
+        function findSnapTarget(x, y, currentPathIdx, currentPtIdx) {
+            const threshold = AppState.styles.snapThreshold;
+            let bestTarget = null;
+            let minDist = threshold;
+
+            AppState.paths.forEach((path, pIdx) => {
+                path.points.forEach((pt, i) => {
+                    if (pIdx === currentPathIdx && Math.abs(i - currentPtIdx) <= 1) return;
+                    
+                    const d = Math.hypot(pt.p.x - x, pt.p.y - y);
+                    if (d < minDist) {
+                        minDist = d;
+                        bestTarget = { type: 'anchor', x: pt.p.x, y: pt.p.y, pathIdx: pIdx, ptIdx: i };
+                    }
+                });
+            });
+
+            if (!bestTarget) {
+                AppState.paths.forEach((path, pIdx) => {
+                    for (let i = 0; i < path.points.length - 1; i++) {
+                        if (pIdx === currentPathIdx && Math.abs(i - currentPtIdx) <= 1) continue;
+
+                        const p0 = path.points[i];
+                        const p1 = path.points[i+1];
+                        
+                        const minX = Math.min(p0.p.x, p1.p.x) - threshold;
+                        const maxX = Math.max(p0.p.x, p1.p.x) + threshold;
+                        const minY = Math.min(p0.p.y, p1.p.y) - threshold;
+                        const maxY = Math.max(p0.p.y, p1.p.y) + threshold;
+                        if (x < minX || x > maxX || y < minY || y > maxY) continue;
+
+                        const { t, dist } = getTFromPoint(p0.p, p0.cOut, p1.cIn, p1.p, {x, y});
+                        if (dist < minDist) {
+                            minDist = dist;
+                            const b = cubicBezier(p0.p, p0.cOut, p1.cIn, p1.p, t);
+                            bestTarget = { 
+                                type: 'segment', 
+                                x: b.x, 
+                                y: b.y, 
+                                pathIdx: pIdx, 
+                                segIdx: i, 
+                                t: t 
+                            };
+                        }
+                    }
+                });
+            }
+
+            return bestTarget;
+        }
+
+        function processDrag(e, x, y) {
+            if (AppState.isDraggingHandle) {
+                const { index, subType, pathIndex } = AppState.activeHandleIndex;
+                const pathData = AppState.paths[pathIndex];
+                const pointData = pathData.points[index];
+                
+                let targetPoint = pointData.p;
+                if (subType === 'cOut') targetPoint = pointData.cOut;
+                if (subType === 'cIn') targetPoint = pointData.cIn;
+
+                const dx = x - AppState.dragStartMouse.x;
+                const dy = y - AppState.dragStartMouse.y;
+                
+                let nextX = targetPoint.x + dx;
+                let nextY = targetPoint.y + dy;
+
+                if (subType === '') {
+                    // --- ANCHOR DRAGGING ---
+                    const snap = findSnapTarget(nextX, nextY, pathIndex, index);
+                    
+                    if (snap) {
+                        const mouseDistToTarget = Math.hypot(x - snap.x, y - snap.y);
+                        
+                        if (mouseDistToTarget <= AppState.styles.snapThreshold) {
+                            nextX = snap.x;
+                            nextY = snap.y;
+                            AppState.isSnapping = true;
+                            AppState.snapTarget = snap;
+                            
+                            UI.layerSnap.style.display = 'block';
+                            UI.snapRing.setAttribute('cx', nextX);
+                            UI.snapRing.setAttribute('cy', nextY);
+                            UI.snapCenter.setAttribute('cx', nextX);
+                            UI.snapCenter.setAttribute('cy', nextY);
+                        } else {
+                            AppState.isSnapping = false;
+                            AppState.snapTarget = null;
+                            UI.layerSnap.style.display = 'none';
+                        }
+                    } else {
+                        AppState.isSnapping = false;
+                        AppState.snapTarget = null;
+                        UI.layerSnap.style.display = 'none';
+                    }
+                } else {
+                    // --- CONTROL POINT DRAGGING ---
+                    // Hiding snap indicator for control points unless we implement a visual angle guide later
+                    UI.layerSnap.style.display = 'none';
+                    
+                    // CHECK FOR CTRL (SNAP ANGLE)
+                    // We use e.ctrlKey || e.metaKey to support Mac
+                    if (e.ctrlKey || e.metaKey) {
+                        const anchor = pointData.p;
+                        
+                        // Calculate angle from anchor to mouse position
+                        const mouseAngle = Math.atan2(y - anchor.y, x - anchor.x);
+                        
+                        // Snap to 20 degree increments (20 * PI / 180)
+                        const snapStep = Math.PI / 9; 
+                        const snappedAngle = Math.round(mouseAngle / snapStep) * snapStep;
+                        
+                        // Use the FIXED length stored when drag started
+                        const fixedLen = AppState.dragStartControlLength;
+                        
+                        // Calculate new position based on fixed length and snapped angle
+                        nextX = anchor.x + Math.cos(snappedAngle) * fixedLen;
+                        nextY = anchor.y + Math.sin(snappedAngle) * fixedLen;
+                    }
+                }
+
+                targetPoint.x = nextX;
+                targetPoint.y = nextY;
+
+                AppState.dragStartMouse = { x, y }; 
+                updatePathD(pathIndex);
+                renderSelectionHandles(); 
+                
+            } else if (AppState.isDraggingPath) {
+                // Path dragging ignores Ctrl as requested
+                UI.layerSnap.style.display = 'none';
+                const dx = x - AppState.dragStartMouse.x;
+                const dy = y - AppState.dragStartMouse.y;
+                
+                AppState.selectedPathIndices.forEach(idx => {
+                    const pathData = AppState.paths[idx];
+                    pathData.points.forEach(pt => {
+                        pt.p.x += dx; pt.p.y += dy;
+                        pt.cIn.x += dx; pt.cIn.y += dy;
+                        pt.cOut.x += dx; pt.cOut.y += dy;
+                    });
+                    updatePathD(idx);
+                });
+
+                AppState.dragStartMouse = { x, y }; 
+                renderSelectionHandles();
+
+            } else if (AppState.isDraggingSegment) {
+                UI.layerSnap.style.display = 'none';
+                const dx = x - AppState.dragStartMouse.x;
+                const dy = y - AppState.dragStartMouse.y;
+                const pathData = AppState.paths[AppState.activePathIndex];
+                const segIndex = AppState.activeSegmentIndex;
+                
+                pathData.points[segIndex].cOut.x += dx;
+                pathData.points[segIndex].cOut.y += dy;
+
+                pathData.points[segIndex+1].cIn.x += dx;
+                pathData.points[segIndex+1].cIn.y += dy;
+
+                AppState.dragStartMouse = { x, y };
+                updatePathD(AppState.activePathIndex);
+                renderSelectionHandles();
+            }
+        }
+
+        function stopDrag() {
+            UI.layerSnap.style.display = 'none';
+            
+            if (AppState.isDraggingHandle || AppState.isDraggingPath || AppState.isDraggingSegment) {
+                AppState.selectedPathIndices.forEach(idx => updatePathD(idx));
+
+                if (AppState.isDraggingHandle && AppState.snapTarget) {
+                    const { index, subType, pathIndex } = AppState.activeHandleIndex;
+                    const snap = AppState.snapTarget;
+                    const pathData = AppState.paths[pathIndex];
+                    
+                    if (subType === '') { 
+                        saveState(); 
+
+                        if (snap.type === 'anchor' && snap.pathIdx === pathIndex) {
+                            const pts = pathData.points;
+                            const isStart = index === 0;
+                            const isEnd = index === pts.length - 1;
+                            const targetIsStart = snap.ptIdx === 0;
+                            const targetIsEnd = snap.ptIdx === pts.length - 1;
+
+                            if (!pathData.closed && ((isStart && targetIsEnd) || (isEnd && targetIsStart))) {
+                                pathData.closed = true;
+                                setStatus("Shape closed by snapping! Fill remains transparent.");
+                                updateCloseShapeUI();
+                            }
+                        }
+                        
+                        if (snap.type === 'segment') {
+                            const targetPath = AppState.paths[snap.pathIdx];
+                            const p0 = targetPath.points[snap.segIdx];
+                            const p1 = targetPath.points[snap.segIdx+1];
+                            
+                            const { leftNode, splitNode, rightNode } = splitBezierCurve(
+                                p0.p, p0.cOut, p1.cIn, p1.p, snap.t
+                            );
+
+                            if (snap.pathIdx === pathIndex) {
+                                if (snap.segIdx < index) index++; 
+                                targetPath.points[snap.segIdx].cOut = leftNode.cOut;
+                                targetPath.points[snap.segIdx+1].cIn = rightNode.cIn;
+                                targetPath.points.splice(snap.segIdx + 1, 0, splitNode);
+                                
+                                pathData.points[index].p.x = splitNode.p.x;
+                                pathData.points[index].p.y = splitNode.p.y;
+                                pathData.points[index].cIn.x = splitNode.cIn.x; 
+                                pathData.points[index].cIn.y = splitNode.cIn.y;
+                            } else {
+                                targetPath.points[snap.segIdx].cOut = leftNode.cOut;
+                                targetPath.points[snap.segIdx+1].cIn = rightNode.cIn;
+                                targetPath.points.splice(snap.segIdx + 1, 0, splitNode);
+                                
+                                pathData.points[index].p.x = splitNode.p.x;
+                                pathData.points[index].p.y = splitNode.p.y;
+                                pathData.points[index].cIn.x = splitNode.cIn.x;
+                                pathData.points[index].cIn.y = splitNode.cIn.y;
+                            }
+                        }
+                    }
+                }
+                
+                AppState.isDraggingHandle = false;
+                AppState.isDraggingPath = false;
+                AppState.isDraggingSegment = false;
+                AppState.activeHandleIndex = null;
+                AppState.activeSegmentIndex = null;
+                AppState.activePathIndex = null;
+                AppState.isSnapping = false;
+                AppState.snapTarget = null;
+                saveState();
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+
+        UI.btnDraw.addEventListener('click', () => setMode('draw'));
+        UI.btnSelect.addEventListener('click', () => setMode('select'));
+        UI.btnCloseToolbar.addEventListener('click', toggleToolbar);
+        UI.fab.addEventListener('click', toggleToolbar);
+
+        // Zoom UI Events
+        UI.btnZoomUI.addEventListener('click', () => {
+            const isVisible = UI.zoomControls.style.display === 'flex';
+            if (isVisible) {
+                UI.zoomControls.style.display = 'none';
+            } else {
+                UI.zoomControls.style.display = 'flex';
+                UI.zoomSlider.value = AppState.view.zoom;
+                UI.zoomVal.textContent = Math.round(AppState.view.zoom * 100) + '%';
+                setStatus("Use slider to zoom to center.");
+            }
+        });
+
+        UI.zoomSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            UI.zoomVal.textContent = Math.round(val * 100) + '%';
+            zoomCentered(val);
+        });
+
+        // Import Button Event
+        UI.btnImport.addEventListener('click', () => {
+            UI.fileInput.click();
+        });
+
+        UI.fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFiles(e.target.files);
+                UI.fileInput.value = ''; // Reset to allow re-importing same file
+            }
+        });
+
+        UI.btnClearRef.addEventListener('click', clearBackground);
+
+        UI.btnCloseShape.addEventListener('click', () => {
+            saveState();
+
+            // 1. Handle Merge of Two Paths
+            if (AppState.selectedPathIndices.length === 2) {
+                const idx1 = AppState.selectedPathIndices[0];
+                const idx2 = AppState.selectedPathIndices[1];
+                const path1 = AppState.paths[idx1];
+                const path2 = AppState.paths[idx2];
+
+                const p1Start = path1.points[0].p;
+                const p1End = path1.points[path1.points.length - 1].p;
+                const p2Start = path2.points[0].p;
+                const p2End = path2.points[path2.points.length - 1].p;
+
+                const distStartStart = Math.hypot(p1Start.x - p2Start.x, p1Start.y - p2Start.y);
+                const distStartEnd = Math.hypot(p1Start.x - p2End.x, p1Start.y - p2End.y);
+                const distEndStart = Math.hypot(p1End.x - p2Start.x, p1End.y - p2Start.y);
+                const distEndEnd = Math.hypot(p1End.x - p2End.x, p1End.y - p2End.y);
+
+                const minDist = Math.min(distStartStart, distStartEnd, distEndStart, distEndEnd);
+
+                let p2Array = [...path2.points];
+                let p2NeedsReverse = false;
+
+                if (minDist === distEndStart) {
+                } else if (minDist === distStartEnd) {
+                    reversePathPoints(path1);
+                    p2NeedsReverse = true;
+                } else if (minDist === distEndEnd) {
+                    p2NeedsReverse = true;
+                } else if (minDist === distStartStart) {
+                    reversePathPoints(path1);
+                }
+
+                if (p2NeedsReverse) {
+                    p2Array.reverse();
+                }
+
+                path1.points = path1.points.concat(p2Array);
+                path1.closed = false; 
+                
+                const pathEl2 = UI.layerPaths.querySelector(`path[data-index="${idx2}"]`);
+                if(pathEl2) pathEl2.remove();
+                AppState.paths.splice(idx2, 1);
+
+                AppState.selectedPathIndices = [Math.min(idx1, idx2)];
+
+                rebuildCanvas();
+                setStatus("Two paths merged.");
+                return;
+            }
+
+            // 2. Handle Single Path Close/Open
+            if (AppState.selectedPathIndices.length === 1) {
+                const idx = AppState.selectedPathIndices[0];
+                const path = AppState.paths[idx];
+                path.closed = !path.closed;
+                
+                if (path.closed) {
+                    setStatus("Shape closed. Fill remains at " + (path.fillOpacity * 100) + "%.");
+                } else {
+                    setStatus("Shape opened.");
+                }
+
+                updatePathD(idx);
+                renderSelectionHandles();
+                updateCloseShapeUI();
+                return;
+            } 
+            
+            // 3. Default Toggle
+            AppState.styles.autoClose = !AppState.styles.autoClose;
+            setStatus(AppState.styles.autoClose ? "New shapes will auto-close." : "New shapes will stay open.");
+            updateCloseShapeUI();
+        });
+
+        function reversePathPoints(pathData) {
+            pathData.points.reverse();
+            pathData.points.forEach(pt => {
+                const temp = pt.cIn;
+                pt.cIn = pt.cOut;
+                pt.cOut = temp;
+            });
+        }
+
+        function setMode(newMode) {
+            AppState.mode = newMode;
+            updateFabIcon();
+
+            if (newMode === 'draw') {
+                UI.body.className = 'mode-draw';
+                UI.btnDraw.classList.add('active');
+                UI.btnSelect.classList.remove('active');
+                AppState.selectedPathIndices = []; 
+                updateSelectionVisuals();
+                setStatus("<b>Draw Mode:</b> Sketch freely.<br>Toolbar moves away if you get close.");
+            } else {
+                stopDrawing(); 
+                UI.body.className = 'mode-select';
+                UI.btnSelect.classList.add('active');
+                UI.btnDraw.classList.remove('active');
+                setStatus("<b>Select Mode:</b> Drag background to Pan.");
+            }
+        }
+
+        window.addEventListener('mousemove', (e) => {
+            // Update last mouse position for zoom centering
+            AppState.lastMouse.x = e.clientX;
+            AppState.lastMouse.y = e.clientY;
+
+            // --- PAN LOGIC WITH DYNAMIC LIMITS ---
+            if (AppState.isPanning) {
+                const dx = e.clientX - AppState.panStartMouse.x;
+                const dy = e.clientY - AppState.panStartMouse.y;
+
+                AppState.view.x += dx;
+                AppState.view.y += dy;
+
+                const maxScreenDim = Math.max(window.innerWidth, window.innerHeight);
+                const zoomFactor = AppState.view.zoom < 1 ? 1 : AppState.view.zoom;
+                const limit = maxScreenDim * 3 * zoomFactor;
+
+                if (AppState.view.x > limit) AppState.view.x = limit;
+                if (AppState.view.x < -limit) AppState.view.x = -limit;
+                if (AppState.view.y > limit) AppState.view.y = limit;
+                if (AppState.view.y < -limit) AppState.view.y = -limit;
+
+                AppState.panStartMouse = { x: e.clientX, y: e.clientY };
+                updateViewportTransform();
+                return;
+            }
+
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            checkToolbarProximity(e.clientX); 
+
+            if (AppState.mode === 'draw') {
+                if (!AppState.isDrawing) {
+                    startDrawing(pt.x, pt.y);
+                } else {
+                    drawMove(pt.x, pt.y);
+                }
+            } else {
+                if (AppState.isDraggingHandle || AppState.isDraggingPath || AppState.isDraggingSegment) {
+                    // Pass event (e) to processDrag to check for Ctrl key
+                    processDrag(e, pt.x, pt.y);
+                }
+            }
+        });
+
+        UI.canvas.addEventListener('mousedown', (e) => {
+            if (AppState.mode === 'select') {
+                const isHandle = e.target.tagName === 'rect' || e.target.tagName === 'circle';
+                const isPath = e.target.classList.contains('path-element');
+                const isMover = e.target.closest('.path-mover-group');
+
+                if (isPath) {
+                    const clickedIndex = parseInt(e.target.dataset.index);
+                    startDraggingSegment(e, clickedIndex);
+                } else if (!isHandle && !isMover) {
+                    toggleSelection(-1, false);
+                    
+                    // Start Panning
+                    AppState.isPanning = true;
+                    AppState.panStartMouse = { x: e.clientX, y: e.clientY };
+                    UI.body.classList.add('panning');
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (AppState.mode === 'draw') {
+                stopDrawing();
+            } else {
+                stopDrag();
+            }
+            
+            if (AppState.isPanning) {
+                AppState.isPanning = false;
+                UI.body.classList.remove('panning');
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            
+            // Zoom Controls
+            if (key === '+' || key === '=' || key === 'i') {
+                zoom(1.2);
+                return;
+            }
+            if (key === '-' || key === '_' || key === 'o') {
+                zoom(0.8);
+                return;
+            }
+            if (key === ',' || key === '0') {
+                resetView();
+                return;
+            }
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                setMode(AppState.mode === 'draw' ? 'select' : 'draw');
+                return;
+            }
+            if (key === 'x') { toggleToolbar(); return; }
+            if ((e.ctrlKey || e.metaKey) && key === 'z') undo();
+            else if ((e.ctrlKey || e.metaKey) && key === 'y') redo();
+            else if (key === 'z') undo();
+            else if (key === 'y') redo();
+            else if (key === 'delete' || key === 'backspace') {
+                if (AppState.selectedPathIndices.length > 0) {
+                    deleteSelectedPaths();
+                } else {
+                    clearBackground();
+                }
+            }
+        });
+
+        function clearBackground() {
+            UI.bgLayer.style.backgroundImage = 'none';
+            setStatus("Background cleared.");
+        }
+
+        function updateStyleProperty(key, value, isFloat = false) {
+            AppState.styles[key] = isFloat ? parseFloat(value) : value;
+            
+            if (AppState.selectedPathIndices.length > 0) {
+                AppState.selectedPathIndices.forEach(idx => {
+                    const pathData = AppState.paths[idx];
+                    pathData[key] = AppState.styles[key];
+                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${idx}"]`);
+                    if (pathEl) {
+                        if(key === 'strokeColor') pathEl.setAttribute("stroke", value);
+                        if(key === 'fillColor') pathEl.setAttribute("fill", value);
+                        if(key === 'width') pathEl.setAttribute("stroke-width", value);
+                        if(key === 'strokeOpacity') pathEl.setAttribute("stroke-opacity", value);
+                        if(key === 'fillOpacity') pathEl.setAttribute("fill-opacity", value);
+                    }
+                });
+            }
+        }
+
+        UI.widthSlider.addEventListener('input', (e) => {
+            const val = e.target.value;
+            updateStyleProperty('width', val);
+            UI.widthVal.textContent = val + "px";
+        });
+        UI.widthSlider.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.strokeColor.addEventListener('input', (e) => updateStyleProperty('strokeColor', e.target.value));
+        UI.strokeColor.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.fillColor.addEventListener('input', (e) => updateStyleProperty('fillColor', e.target.value));
+        UI.fillColor.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.strokeOpacity.addEventListener('input', (e) => updateStyleProperty('strokeOpacity', e.target.value, true));
+        UI.strokeOpacity.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.fillOpacity.addEventListener('input', (e) => updateStyleProperty('fillOpacity', e.target.value, true));
+        UI.fillOpacity.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+
+        function deleteSelectedPaths() {
+            if (AppState.selectedPathIndices.length === 0) return;
+            
+            const indicesToDelete = [...AppState.selectedPathIndices].sort((a, b) => b - a);
+            
+            saveState();
+            
+            indicesToDelete.forEach(idx => {
+                const pathEl = UI.layerPaths.querySelector(`path[data-index="${idx}"]`);
+                if (pathEl) pathEl.remove();
+                AppState.paths.splice(idx, 1);
+            });
+
+            AppState.selectedPathIndices = [];
+            clearHandles();
+            Array.from(UI.layerPaths.children).forEach((el, idx) => el.dataset.index = idx);
+            
+            updateSelectionVisuals();
+        }
+        UI.btnDelete.addEventListener('click', deleteSelectedPaths);
+
+        UI.btnClear.addEventListener('click', () => {
+            if(confirm("Clear entire canvas?")) {
+                saveState();
+                AppState.paths = [];
+                AppState.selectedPathIndices = [];
+                UI.layerPaths.innerHTML = '';
+                UI.layerHandles.innerHTML = '';
+                
+                updateSelectionVisuals();
+            }
+        });
+
+        // --- Export ---
+        UI.btnExport.addEventListener('click', () => {
+            if (AppState.paths.length === 0) return;
+            const svgContent = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svgContent.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgContent.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+            
+            AppState.paths.forEach(pathData => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("stroke", pathData.strokeColor);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor);
+                pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                
+                const pts = pathData.points;
+                let d = `M ${pts[0].p.x.toFixed(1)} ${pts[0].p.y.toFixed(1)}`;
+                for (let i = 0; i < pts.length - 1; i++) {
+                    const p1 = pts[i];
+                    const p2 = pts[i+1];
+                    d += ` C ${p1.cOut.x.toFixed(1)} ${p1.cOut.y.toFixed(1)}, ${p2.cIn.x.toFixed(1)} ${p2.cIn.y.toFixed(1)}, ${p2.p.x.toFixed(1)} ${p2.p.y.toFixed(1)}`;
+                }
+                if (pathData.closed) {
+                    d += " Z";
+                }
+                pathEl.setAttribute("d", d);
+                svgContent.appendChild(pathEl);
+            });
+
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgContent);
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+                source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            }
+            if(!source.match(/^<svg[^>]+xmlns:xlink/)){
+                source = source.replace(/^<svg/, '<svg xmlns:xlink="http://www.w3.org/1999/xlink"');
+            }
+
+            const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `slidus_sketch_${Date.now()}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        });
+
+        // --- Drag & Drop Background / SVG Import ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            UI.app.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+        
+        setMode('select');
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        UI.app.addEventListener('dragenter', () => document.body.classList.add('drag-over'));
+        UI.app.addEventListener('dragleave', (e) => {
+            if (e.relatedTarget && !UI.app.contains(e.relatedTarget)) {
+                document.body.classList.remove('drag-over');
+            }
+        });
+        UI.app.addEventListener('drop', (e) => {
+            document.body.classList.remove('drag-over');
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) handleFiles(files);
+        });
+
+        function handleFiles(files) {
+            const file = files[0];
+            
+            // 1. Handle Standard Images (Background)
+            if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onloadend = function() {
+                    UI.bgLayer.style.backgroundImage = `url('${reader.result}')`;
+                    setStatus("Background image set.");
+                }
+                return;
+            }
+
+            // 2. Handle SVG (Context Sensitive)
+            if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) {
+                
+                // Check if canvas is empty
+                const isEmpty = AppState.paths.length === 0;
+
+                if (isEmpty) {
+                    // LOAD AS EDITABLE PATHS
+                    const reader = new FileReader();
+                    reader.readAsText(file);
+                    reader.onloadend = function() {
+                        try {
+                            const parser = new DOMParser();
+                            const doc = parser.parseFromString(reader.result, "image/svg+xml");
+                            const svgPaths = doc.querySelectorAll('path');
+                            
+                            if (svgPaths.length > 0) {
+                                saveState();
+                                let importedCount = 0;
+                                svgPaths.forEach(p => {
+                                    const d = p.getAttribute('d');
+                                    if(!d) return;
+
+                                    const newPoints = parsePathDToPoints(d);
+                                    if(newPoints.length > 0) {
+                                        const newPath = {
+                                            strokeColor: p.getAttribute('stroke') || '#ffffff',
+                                            fillColor: p.getAttribute('fill') || '#000000',
+                                            strokeOpacity: p.getAttribute('stroke-opacity') || 1,
+                                            fillOpacity: p.getAttribute('fill-opacity') || 0,
+                                            width: parseInt(p.getAttribute('stroke-width')) || 4,
+                                            points: newPoints,
+                                            closed: d.trim().endsWith('Z')
+                                        };
+                                        AppState.paths.push(newPath);
+                                        importedCount++;
+                                    }
+                                });
+                                rebuildCanvas();
+                                setStatus(`Imported ${importedCount} editable paths.`);
+                            } else {
+                                setStatus("SVG contained no paths to edit.");
+                            }
+                        } catch (err) {
+                            console.error(err);
+                            setStatus("Error parsing SVG.");
+                        }
+                    }
+                } else {
+                    // LOAD AS REFERENCE BACKGROUND
+                    const url = URL.createObjectURL(file);
+                    UI.bgLayer.style.backgroundImage = `url('${url}')`;
+                    setStatus("SVG loaded as reference (background). Trace over it.");
+                }
+            }
+        }
+
+        function parsePathDToPoints(d) {
+            const result = [];
+            const commands = d.match(/[a-zA-Z][^a-zA-Z]*/g);
+            if(!commands) return [];
+
+            let currentX = 0, currentY = 0;
+            let startX = 0, startY = 0;
+
+            commands.forEach(cmd => {
+                const type = cmd[0];
+                const args = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+
+                if (type === 'M' || type === 'm') {
+                    let x = args[0];
+                    let y = args[1];
+                    if (type === 'm') { x += currentX; y += currentY; }
+                    result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} });
+                    currentX = x; currentY = y;
+                    startX = x; startY = y;
+                    
+                    for(let i=2; i<args.length; i+=2) {
+                        x = args[i];
+                        y = args[i+1];
+                        if (type === 'm') { x += currentX; y += currentY; }
+                        result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} });
+                        currentX = x; currentY = y;
+                    }
+                }
+                else if (type === 'L' || type === 'l') {
+                    for(let i=0; i<args.length; i+=2) {
+                        let x = args[i];
+                        let y = args[i+1];
+                        if (type === 'l') { x += currentX; y += currentY; }
+                        result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} });
+                        currentX = x; currentY = y;
+                    }
+                }
+                else if (type === 'C' || type === 'c') {
+                    for(let i=0; i<args.length; i+=6) {
+                        let cp1x = args[i], cp1y = args[i+1];
+                        let cp2x = args[i+2], cp2y = args[i+3];
+                        let x = args[i+4], y = args[i+5];
+
+                        if (type === 'c') {
+                            cp1x += currentX; cp1y += currentY;
+                            cp2x += currentX; cp2y += currentY;
+                            x += currentX; y += currentY;
+                        }
+
+                        if (result.length > 0) {
+                            result[result.length-1].cOut = {x: cp1x, y: cp1y};
+                        }
+                        result.push({ p: {x, y}, cIn: {x: cp2x, y: cp2y}, cOut: {x, y} });
+                        currentX = x; currentY = y;
+                    }
+                }
+                else if (type === 'Z' || type === 'z') {
+                    currentX = startX;
+                    currentY = startY;
+                }
+            });
+
+            return result;
+        }
+
+    </script>
+</body>
+</html>
