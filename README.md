@@ -19,8 +19,8 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 ### Any Mode
 - **z** / **Ctrl+z** : Undo
 - **y** / **Ctrl+y** : Redo
-- **+** / **i** / **pinch fingers** : Zoom In
-- **-** / **o** / **spread fingers** : Zoom Out
+- **+** / **i** / **spread fingers** : Zoom In
+- **-** / **o** / **pinch fingers** : Zoom Out
 - **hold right mouse-button + drag** / **2 finger drag** : Pan
 
 ### Select Mode
