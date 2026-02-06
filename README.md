@@ -17,11 +17,11 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - **x** / **Click on Circle** : Show Toolbar
 
 ### Any Mode
-- **z** / **Ctrl+z** : Undo
-- **y** / **Ctrl+y** : Redo
-- **+** / **i** / **spread fingers** : Zoom In
-- **-** / **o** / **pinch fingers** : Zoom Out
-- **hold right mouse-button + drag** / **2 finger drag** : Pan
+- Undo: **z** / **Ctrl+z**
+- Reso: **y** / **Ctrl+y**
+- Zoom In: **+** / **i** / **spread fingers**
+- Zoom Out: **-** / **o** / **pinch fingers**
+- Pan: **hold right mouse-button + drag** / **2 finger drag**
 
 ### Select Mode
 - White Square = **Anchor**, drag these by pressing and moving while holding
