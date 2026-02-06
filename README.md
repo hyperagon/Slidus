@@ -24,7 +24,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - **hold right mouse-button + drag** / **2 finger drag** : Pan
 
 ### Select Mode
-- White Square = **Anchor**, dragging these takes its **Control Nodes** along
+- White Square = **Anchor**, drag these by pressing and moving while holding
 - Red Circle = **Control Node**, these are dragged if you drag the path
 - Hold Ctrl or Cmd to snap **Control Handles** to multiples of 20.
 - Double-click **Anchor** to delete it.
