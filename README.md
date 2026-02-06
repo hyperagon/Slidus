@@ -24,7 +24,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - **hold right mouse-button + drag** / **2 finger drag** : Pan
 
 ### Select Mode
-- White Square = **Anchor**,dragging these takes itws **Control Nodes** along
+- White Square = **Anchor**,dragging these takes its **Control Nodes** along
 - Red Circle = **Control Node**, these are dragged if you drag the path
 - 
 
