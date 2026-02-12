@@ -27,7 +27,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - White Square = **Anchor**, drag these by pressing and moving while holding
 - Red Circle = **Control Node**, these adapt if you drag the path
 - Dragging **Anchors** takes its **Control Nodes** along
-- Hold Ctrl or Cmd to snap **Control Handles** to multiples of 20
+- Hold Ctrl or Cmd to snap **Control Handles** to multiples of 5
 - Double-click **Anchor** to delete it
 - Double-click path to add **Anchor**
 - Drag **Anchor** near paths or **Anchors** to snap
