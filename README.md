@@ -31,5 +31,5 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Double-click **Anchor** to delete it
 - Double-click path to add **Anchor**
 - Drag **Anchor** near paths or **Anchors** to snap
-- Select a path and either click "**Close / Merge**" or drag its start to its end (Closing adds <span **Control Handles**)
+- Select a path and either click "**Close / Merge**" or drag its start to its end (Closing adds *Control Handles**)
 - Select multiple paths and click "**Close / Merge**" to connect them and mergre into one
