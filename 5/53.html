@@ -3,14 +3,26 @@
     Make no other changes to the code. Do not improve, refactor, or optimize anything else.
     Do not add any default UI behaviors (like hover effects or animations) unless I specifically request them.
     
-    In Selection mode I should be able to click and drag to form a selection box (only show a dashed outline) and select all paths within that box. I can still only click them or shift+click to add to the selection.
+    This the smoothing can't be as aggressive it's turning long shapes into short curves, where are the Anchors?
+    
+    Simplification Tolerance: Reduced from 5.0 to 2.0. This keeps points that define the shape more faithfully. 
+    Distance Filter: Reduced from 5 to 2. Captures finer detail during the initial pass. 
+    Angle Threshold: Reduced from 30 to 20 degrees. Identifies more corners as anchors. 
+    Curve Tension: Increased from 0.25 to 0.4. Creates longer, smoother curves between anchors instead of short, stiff segments. 
+    
+    the idea is to avoid anchors on simple lines/curves but retain anchors between segments.
+
+    Increased Simplification Tolerance: Changed from 2.0 to 8.0. This aggressively removes unnecessary anchors from long straight lines or simple curves. 
+    Distance Filter: Increased initial filtering distance from 2 to 5 to ignore micro-jitters. 
+    Corner Preservation: Added logic to detect significant angles (changes > 25 degrees) and force those points to be kept as Anchors. 
+    Sharp Corner Rendering: Lowered the threshold for "sharp corners" in the curve calculation to 30 degrees. This ensures that anchors at segment joins (corners) produce sharp edges rather than loose curves. 
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Slidus 5.0</title>
+    <title>Slidus 5.3</title>
     <style>
         :root {
             --bg-color: #1e1e24;
@@ -58,8 +70,6 @@
             background-repeat: no-repeat;
             z-index: 0;
             pointer-events: none;
-            opacity: 0.5;
-            transition: opacity 0.3s ease;
             transform-origin: 0 0;
         }
 
@@ -82,7 +92,6 @@
             pointer-events: none;
             z-index: 100;
             border: 2px solid var(--accent-color);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
         }
 
         /* SVG Canvas */
@@ -223,7 +232,6 @@
             background-color: var(--panel-bg);
             padding: 16px;
             border-radius: 8px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
             display: flex;
             flex-direction: column;
             gap: 16px;
@@ -347,7 +355,6 @@
             background-color: var(--accent-color);
             color: white;
             font-weight: bold;
-            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4);
         }
 
         button.danger {
@@ -400,11 +407,9 @@
             background-color: var(--accent-color);
             color: white;
             font-weight: bold;
-            box-shadow: 0 0 10px rgba(74, 144, 226, 0.4);
         }
         .snap-btn.pressed {
             transform: translateY(2px);
-            box-shadow: inset 0 1px 3px rgba(0,0,0,0.4);
         }
 
         /* Color Picker Button */
@@ -442,7 +447,6 @@
             border-radius: 6px;
             display: none;
             flex-direction: column;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
             z-index: 50;
             overflow: hidden;
             min-width: 100px;
@@ -525,7 +529,6 @@
             background-color: var(--panel-bg);
             border: 1px solid var(--border-color);
             border-radius: 8px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
             padding: 20px;
             z-index: 200;
             display: none;
@@ -619,7 +622,6 @@
             align-items: center;
             justify-content: center;
             cursor: pointer;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
             z-index: 5;
             pointer-events: none;
             opacity: 0;
@@ -660,8 +662,8 @@
             padding: 10px 0;
             min-width: 40px;
         }
-
-    </style></head>
+    </style>
+</head>
 <body class="mode-select">
 
     <!-- Hidden File Input for Import Button -->
@@ -887,7 +889,7 @@
                 strokeOpacity: 1.0,
                 fillOpacity: 0.0, 
                 width: 4,
-                drawThreshold: 2, // UPDATED: Reduced from 10 to 2 for faster/more detailed drawing
+                drawThreshold: 2,
                 autoClose: false,
                 snapThreshold: 12
             },
@@ -1276,15 +1278,46 @@
 
         function simplifyPath(points, tolerance) {
             if (points.length <= 2) return points;
+            
+            // First pass: filter by distance
             let filtered = [points[0]];
             for (let i = 1; i < points.length; i++) {
                 const d = Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
+                // UPDATED: Increased distance filter to reduce noise
                 if (d > 5) { filtered.push(points[i]); }
             }
             if (filtered[filtered.length-1] !== points[points.length-1]) {
                 filtered.push(points[points.length-1]);
             }
-            return ramerDouglasPeucker(filtered, tolerance);
+            
+            // Identify anchor points where angle change exceeds threshold
+            // UPDATED: Angle threshold 25 degrees to detect corners
+            const angleThreshold = 25 * Math.PI / 180; 
+            const anchors = new Set();
+            
+            for (let i = 1; i < filtered.length - 1; i++) {
+                const prev = filtered[i - 1];
+                const curr = filtered[i];
+                const next = filtered[i + 1];
+                
+                // Calculate angle between incoming and outgoing vectors
+                const v1x = curr.x - prev.x;
+                const v1y = curr.y - prev.y;
+                const v2x = next.x - curr.x;
+                const v2y = next.y - curr.y;
+                
+                const angle1 = Math.atan2(v1y, v1x);
+                const angle2 = Math.atan2(v2y, v2x);
+                let angleDiff = Math.abs(angle1 - angle2);
+                if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                
+                if (angleDiff > angleThreshold) {
+                    anchors.add(i);
+                }
+            }
+            
+            // Apply RDP with anchor preservation
+            return rdpPreserveAnchors(filtered, tolerance, anchors);
         }
 
         function ramerDouglasPeucker(points, epsilon) {
@@ -1296,6 +1329,41 @@
             }
             if (dmax > epsilon) {
                 return ramerDouglasPeucker(points.slice(0, index + 1), epsilon).slice(0, -1).concat(ramerDouglasPeucker(points.slice(index, end + 1), epsilon));
+            }
+            return [points[0], points[end]];
+        }
+        
+        function rdpPreserveAnchors(points, epsilon, anchors) {
+            if (points.length <= 2) return points;
+            
+            // Check for anchor points in the middle
+            for (let i = 1; i < points.length - 1; i++) {
+                if (anchors.has(i)) {
+                    // Split at this anchor point
+                    const leftAnchors = new Set();
+                    const rightAnchors = new Set();
+                    anchors.forEach(idx => {
+                        if (idx < i) leftAnchors.add(idx);
+                        else if (idx > i) rightAnchors.add(idx - i);
+                    });
+                    
+                    const left = rdpPreserveAnchors(points.slice(0, i + 1), epsilon, leftAnchors);
+                    const right = rdpPreserveAnchors(points.slice(i), epsilon, rightAnchors);
+                    return left.slice(0, -1).concat(right);
+                }
+            }
+            
+            // No anchors in range, use standard RDP logic
+            let dmax = 0, index = 0, end = points.length - 1;
+            for (let i = 1; i < end; i++) {
+                const d = pointLineDistance(points[i], points[0], points[end]);
+                if (d > dmax) { index = i; dmax = d; }
+            }
+            
+            if (dmax > epsilon) {
+                const left = rdpPreserveAnchors(points.slice(0, index + 1), epsilon, new Set());
+                const right = rdpPreserveAnchors(points.slice(index), epsilon, new Set());
+                return left.slice(0, -1).concat(right);
             }
             return [points[0], points[end]];
         }
@@ -1314,7 +1382,7 @@
             const result = points.map(p => ({ p: {...p}, cIn: {...p}, cOut: {...p} }));
             const n = points.length;
             if (n < 2) return result;
-            const tension = 0.25; 
+            const tension = 0.3; 
 
             for (let i = 0; i < n; i++) {
                 const prev = points[Math.max(0, i - 1)];
@@ -1342,8 +1410,8 @@
                     let angleDiff = Math.abs(angle1 - angle2);
                     if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
                     
-                    // If the angle is sharp (> 45 degrees), keep the handles on the anchor
-                    if (angleDiff > Math.PI / 4) {
+                    // UPDATED: If the angle is sharp (> 30 degrees), keep the handles on the anchor
+                    if (angleDiff > Math.PI / 6) {
                         result[i].cIn = { x: curr.x, y: curr.y };
                         result[i].cOut = { x: curr.x, y: curr.y };
                         continue;
@@ -1455,8 +1523,8 @@
             if (!AppState.isDrawing) return;
             AppState.isDrawing = false;
             if (AppState.rawPoints.length > 1) {
-                // FIX: Reduced tolerance from 20.0 to 5.0 to make circles smoother (less linear/faceted)
-                const anchors = simplifyPath(AppState.rawPoints, 5.0);
+                // UPDATED: Increased tolerance to 8.0 to simplify lines and curves
+                const anchors = simplifyPath(AppState.rawPoints, 8.0);
                 const splinePoints = calculateControlPoints(anchors);
                 const newPath = {
                     strokeColor: AppState.styles.strokeColor, fillColor: AppState.styles.fillColor,
@@ -1730,7 +1798,7 @@
             if (!pathData || pathData.points.length <= 2) return;
             saveState();
             pathData.points.splice(index, 1);
-            const tension = 0.25; 
+            const tension = 0.3; 
             if (index < pathData.points.length) {
                 const curr = pathData.points[index];
                 if (curr && index > 0) {
@@ -2518,7 +2586,7 @@
                 e.preventDefault();
                 
                 // Pan
-                const dx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                const dx = (e.touches[0].clientX + e.touches[1].clientY) / 2;
                 const dy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
                 
                 const moveX = dx - AppState.panStartMouse.x;

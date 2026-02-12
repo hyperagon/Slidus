@@ -3,14 +3,14 @@
     Make no other changes to the code. Do not improve, refactor, or optimize anything else.
     Do not add any default UI behaviors (like hover effects or animations) unless I specifically request them.
     
-    In Selection mode I should be able to click and drag to form a selection box (only show a dashed outline) and select all paths within that box. I can still only click them or shift+click to add to the selection.
+    When Drawing if the line suddenly goes over an angle of 30 degrees make an Anchor.
 -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Slidus 5.0</title>
+    <title>Slidus 5.1</title>
     <style>
         :root {
             --bg-color: #1e1e24;
@@ -1276,6 +1276,8 @@
 
         function simplifyPath(points, tolerance) {
             if (points.length <= 2) return points;
+            
+            // First pass: filter by distance
             let filtered = [points[0]];
             for (let i = 1; i < points.length; i++) {
                 const d = Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
@@ -1284,7 +1286,34 @@
             if (filtered[filtered.length-1] !== points[points.length-1]) {
                 filtered.push(points[points.length-1]);
             }
-            return ramerDouglasPeucker(filtered, tolerance);
+            
+            // Identify anchor points where angle change exceeds 30 degrees
+            const angleThreshold = 30 * Math.PI / 180; // 30 degrees in radians
+            const anchors = new Set();
+            
+            for (let i = 1; i < filtered.length - 1; i++) {
+                const prev = filtered[i - 1];
+                const curr = filtered[i];
+                const next = filtered[i + 1];
+                
+                // Calculate angle between incoming and outgoing vectors
+                const v1x = curr.x - prev.x;
+                const v1y = curr.y - prev.y;
+                const v2x = next.x - curr.x;
+                const v2y = next.y - curr.y;
+                
+                const angle1 = Math.atan2(v1y, v1x);
+                const angle2 = Math.atan2(v2y, v2x);
+                let angleDiff = Math.abs(angle1 - angle2);
+                if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                
+                if (angleDiff > angleThreshold) {
+                    anchors.add(i);
+                }
+            }
+            
+            // Apply RDP with anchor preservation
+            return rdpPreserveAnchors(filtered, tolerance, anchors);
         }
 
         function ramerDouglasPeucker(points, epsilon) {
@@ -1296,6 +1325,41 @@
             }
             if (dmax > epsilon) {
                 return ramerDouglasPeucker(points.slice(0, index + 1), epsilon).slice(0, -1).concat(ramerDouglasPeucker(points.slice(index, end + 1), epsilon));
+            }
+            return [points[0], points[end]];
+        }
+        
+        function rdpPreserveAnchors(points, epsilon, anchors) {
+            if (points.length <= 2) return points;
+            
+            // Check for anchor points in the middle
+            for (let i = 1; i < points.length - 1; i++) {
+                if (anchors.has(i)) {
+                    // Split at this anchor point
+                    const leftAnchors = new Set();
+                    const rightAnchors = new Set();
+                    anchors.forEach(idx => {
+                        if (idx < i) leftAnchors.add(idx);
+                        else if (idx > i) rightAnchors.add(idx - i);
+                    });
+                    
+                    const left = rdpPreserveAnchors(points.slice(0, i + 1), epsilon, leftAnchors);
+                    const right = rdpPreserveAnchors(points.slice(i), epsilon, rightAnchors);
+                    return left.slice(0, -1).concat(right);
+                }
+            }
+            
+            // No anchors in range, use standard RDP logic
+            let dmax = 0, index = 0, end = points.length - 1;
+            for (let i = 1; i < end; i++) {
+                const d = pointLineDistance(points[i], points[0], points[end]);
+                if (d > dmax) { index = i; dmax = d; }
+            }
+            
+            if (dmax > epsilon) {
+                const left = rdpPreserveAnchors(points.slice(0, index + 1), epsilon, new Set());
+                const right = rdpPreserveAnchors(points.slice(index), epsilon, new Set());
+                return left.slice(0, -1).concat(right);
             }
             return [points[0], points[end]];
         }

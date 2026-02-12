@@ -1,9 +1,6 @@
-<!--
-    
-    
-    Do not add any features, styles, or logic that I did not explicitly ask for.
-    Make no other changes to the code. Do not improve, refactor, or optimize anything else.
-    Do not add any default UI behaviors (like hover effects or animations) unless I specifically request them.
+<!--    
+    Human Intervention:
+        - Reverted the code in UI.btnCloseShape.addEventListener('click' with v4.0's (instead of asking the LLM to redo it).
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -2202,6 +2199,7 @@
                     
                     // Find the closest connection points
                     const distStartStart = Math.hypot(baseStart.x - mergeStart.x, baseStart.y - mergeStart.y);
+                    const distStartEnd = Math.hypot(baseStart.x - mergeEnd.x, baseStart.y - mergeEnd.y);
                     const distEndStart = Math.hypot(baseEnd.x - mergeStart.x, baseEnd.y - mergeStart.y);
                     const distEndEnd = Math.hypot(baseEnd.x - mergeEnd.x, baseEnd.y - mergeEnd.y);
                     
@@ -2243,7 +2241,7 @@
                 
                 // Remove all the merged paths except the base one
                 for (let i = sortedIndices.length - 1; i > 0; i--) {
-                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${sortedIndices[i]}"]`) || UI.layerPathsActive.querySelector(`path[data-index="${sortedIndices[i]}"]`);
+                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${sortedIndices[i]}"]`);
                     if(pathEl) pathEl.remove();
                     AppState.paths.splice(sortedIndices[i], 1);
                 }
