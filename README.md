@@ -19,6 +19,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 ### Any Mode
 - Undo: **z** / **Ctrl+z**
 - Reso: **y** / **Ctrl+y**
+- Duplicate: **d** / **Ctrl+d**
 - Zoom In: **+** / **i** / **spread fingers**
 - Zoom Out: **-** / **o** / **pinch fingers**
 - Pan: **hold right mouse-button + drag** / **2 finger drag**
@@ -28,7 +29,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Red Circle = **Control Node**, these adapt if you drag the path
 - Dragging **Anchors** takes its **Control Nodes** along
 - Hold Ctrl or Cmd to snap **Control Handles** to multiples of 5
-- Double-click **Anchor** to delete it
+- Double-click or Ctrl+Click **Anchor** to delete it
 - Double-click path to add **Anchor**
 - Drag **Anchor** near paths or **Anchors** to snap
 - Select a path and either click "**Close / Merge**" or drag its start to its end (Closing adds *Control Handles**)
