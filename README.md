@@ -20,8 +20,8 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Undo: **z** / **Ctrl+z**
 - Reso: **y** / **Ctrl+y**
 - Duplicate: **d** / **Ctrl+d**
-- Move selection: Drag Cross
-- Rotare path: Drag Circled X, if holding Ctrl you'll drag the pivot
+- Move selection: Drag **Cross**
+- Rotare path: Drag **Circled X**, if holding Ctrl you'll drag the pivot
 - Zoom In: **+** / **i** / **spread fingers**
 - Zoom Out: **-** / **o** / **pinch fingers**
 - Pan: **hold right mouse-button + drag** / **2 finger drag**
