@@ -19,6 +19,8 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 ### Any Mode
 - Undo: **z** / **Ctrl+z**
 - Reso: **y** / **Ctrl+y**
+- Copy: **Ctrl+c**
+- Paste: **Ctrl+v**
 - Duplicate: **d** / **Ctrl+d**
 - Move selection: Drag **Cross**
 - Rotare path: Drag **Circled X**, if holding Ctrl you'll drag the pivot
