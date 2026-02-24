@@ -39,3 +39,6 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Drag **Anchor** near paths or **Anchors** to snap
 - Select a path and either click "**Close / Merge**" or drag its start to its end (Closing adds *Control Handles**)
 - Select multiple paths and click "**Close / Merge**" to connect and mergre into one
+- Pick a color from the reference by pressing the button between the colors
+ then drqgging or click a color box and clicking on the reference
+- Tracwe a color by pressing the "Yrace" button then the color to trace on the reference image
