@@ -23,7 +23,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Paste: **Ctrl+v**
 - Duplicate: **d** / **Ctrl+d**
 - Move selection: Drag **Cross**
-- Rotare path: Drag **Circled X**, if holding Ctrl you'll drag the pivot
+- Rotare path: Drag **Circled X**, if holding Ctrl (before dragging) you'll drag the pivot
 - Zoom In: **+** / **i** / **spread fingers**
 - Zoom Out: **-** / **o** / **pinch fingers**
 - Pan: **hold right mouse-button + drag** / **2 finger drag**
