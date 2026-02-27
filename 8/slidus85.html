@@ -1,0 +1,3547 @@
+<!--
+    The pivot resets to the center of the path/shape on select. (updated toggleSelection, renderHandlesForPath)
+
+    Give me the updated code segments.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Slidus 8.5</title>
+    
+    <style>
+        :root {
+            --bg-color: #1e1e24;
+            --text-color: #e0e0e0;
+            --accent-color: #4a90e2;
+            --accent-hover: #357abd;
+            --danger-color: #e74c3c;
+            --border-color: #444450;
+            --toolbar-width: 280px;
+            --control-color: #e74c3c;
+            --panel-bg: #2a2a32;
+        }
+
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden; /* Prevent scrollbars by default */
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        
+        /* Helper class to allow scroll-zoom events to pass through to browser */
+        body.enable-scroll-zoom {
+            overflow: hidden; /* Keep layout stable */
+            height: 100%;
+            touch-action: auto; /* Allow browser scroll/zoom handling */
+        }
+        
+        /* Hide scrollbars that might appear during zoom */
+        body.enable-scroll-zoom::-webkit-scrollbar { display: none; }
+        body.enable-scroll-zoom { -ms-overflow-style: none; scrollbar-width: none; }
+
+        #app {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        #bg-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--bg-color);
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+            transform-origin: 0 0;
+        }
+
+        body.drag-over #bg-layer { opacity: 0.2; }
+        
+        body.drag-over::after {
+            content: "Drop Image/SVG to Set Background";
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 20px 40px;
+            border-radius: 12px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 100;
+            border: 2px solid var(--accent-color);
+        }
+
+        #canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+            z-index: 1; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            overflow: visible;
+            touch-action: none;
+            cursor: default;
+        }
+
+        body.mode-select #canvas { cursor: default; }
+        body.mode-select.panning #canvas { cursor: grabbing; }
+        body.mode-select .path-element { cursor: pointer; pointer-events: stroke; }
+        body.mode-draw .path-element { pointer-events: none; }
+
+        .handle-group { pointer-events: none; }
+        .handle-group > * { pointer-events: auto; }
+
+        .handle-node {
+            fill: #fff;
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            cursor: pointer;
+            vector-effect: non-scaling-stroke;
+        }
+        .handle-node:hover { fill: var(--accent-color); stroke: #fff; }
+
+        .snap-indicator { display: none; pointer-events: none; }
+        .snap-indicator circle {
+            stroke: var(--accent-color);
+            stroke-width: 2px;
+            fill: rgba(74, 144, 226, 0.2);
+            vector-effect: non-scaling-stroke;
+        }
+
+        .handle-control {
+            fill: var(--bg-color);
+            stroke: var(--control-color);
+            stroke-width: 2px;
+            cursor: move;
+            vector-effect: non-scaling-stroke;
+        }
+        .handle-control:hover { fill: var(--control-color); stroke: #fff; }
+
+        .handle-control-line {
+            stroke: var(--control-color);
+            stroke-width: 1;
+            opacity: 0.6;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .handle-closing-line {
+            stroke: var(--accent-color);
+            stroke-width: 2;
+            stroke-dasharray: 6, 4;
+            opacity: 0.8;
+            pointer-events: stroke;
+            cursor: move;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .path-mover-group { cursor: grab; pointer-events: auto; }
+        .path-mover-group:active { cursor: grabbing; }
+        .cross-line-outline {
+            stroke: #000000;
+            stroke-width: 5;
+            stroke-linecap: round;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .cross-line {
+            stroke: var(--text-color);
+            stroke-width: 3;
+            stroke-linecap: round;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .cross-hitbox { fill: transparent; stroke: transparent; }
+        .path-mover-group:hover .cross-line { stroke: var(--accent-color); stroke-width: 4; }
+
+        /* Rotation Handle Styles */
+        .rotation-handle-group { cursor: grab; pointer-events: auto; }
+        .rotation-handle-group:active { cursor: grabbing; }
+        .rotation-x-line {
+            stroke: var(--text-color);
+            stroke-width: 2;
+            stroke-linecap: round;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .rotation-circle {
+            fill: var(--bg-color);
+            stroke: var(--text-color);
+            stroke-width: 2;
+            pointer-events: none;
+            vector-effect: non-scaling-stroke;
+        }
+        .rotation-hitbox {
+            fill: transparent;
+            stroke: transparent;
+            cursor: grab;
+        }
+        .rotation-handle-group:hover .rotation-x-line { stroke: var(--accent-color); }
+        .rotation-handle-group:hover .rotation-circle { stroke: var(--accent-color); }
+
+        .rotation-pivot-center {
+            stroke: var(--text-color);
+            pointer-events: none;
+        }
+
+        #selection-rect {
+            fill: none;
+            stroke: #4a90e2;
+            stroke-width: 1;
+            stroke-dasharray: 4, 4;
+            pointer-events: none;
+            display: none;
+            vector-effect: non-scaling-stroke;
+        }
+
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 20px; 
+            width: var(--toolbar-width);
+            background-color: var(--panel-bg);
+            padding: 16px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            border: 1px solid var(--border-color);
+            z-index: 10; 
+            transition: transform 0.2s, opacity 0.2s;
+        }
+
+        .toolbar.toolbar-right { left: auto; right: 20px; }
+        .toolbar.minimized { opacity: 0; pointer-events: none; transform: translateY(-10px); }
+
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+        }
+        .close-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        .help-btn {
+            position: absolute;
+            top: 10px;
+            right: 60px; /* Moved from 35px to make room for redo */
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-family: sans-serif;
+            font-size: 14px;
+        }
+        .help-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+
+        /* New Undo/Redo Button Styles */
+        .undo-btn, .redo-btn {
+            position: absolute;
+            top: 10px;
+            background: transparent;
+            border: none;
+            color: #666;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .undo-btn:hover, .redo-btn:hover { color: #fff; background: rgba(255,255,255,0.1); }
+        
+        .undo-btn { right: 75px; } /* Positioned to the left of help */
+        .redo-btn { right: 35px; } /* Positioned to the right of help (where help used to be) */
+
+        .toolbar-group { display: flex; flex-direction: column; gap: 8px; }
+
+        .toolbar-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: #888;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .side-by-side { display: flex; gap: 10px; align-items: flex-start; }
+        .side-by-side > div { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+        .side-by-side > div:nth-child(2) { flex: 0 0 auto; }
+        .side-by-side > div label { font-size: 0.75rem; color: #888; }
+
+        .button-row { display: flex; gap: 8px; position: relative; }
+
+        button {
+            flex: 1;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 4px;
+            background-color: #3e3e4a;
+            color: var(--text-color);
+            cursor: pointer;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        button:hover { background-color: #50505e; }
+        button.active { background-color: var(--accent-color); color: white; font-weight: bold; }
+        button.danger { background-color: rgba(231, 76, 60, 0.15); color: var(--danger-color); border: 1px solid rgba(231, 76, 60, 0.3); }
+        button.danger:hover { background-color: var(--danger-color); color: white; }
+        button.export-btn { background-color: #27ae60; color: white; font-weight: 600; }
+        button.export-btn:hover { background-color: #219150; }
+        button.import-btn { background-color: #3e3e4a; }
+        button.import-btn:hover { background-color: var(--accent-color); color: white; }
+        .icon-btn { flex: 0 0 40px; padding: 10px 0; background-color: #3e3e4a; }
+        .icon-btn:hover { background-color: var(--accent-color); color: white; }
+
+        .snap-btn {
+            flex: 0 0 40px;
+            padding: 10px 0;
+            background-color: #3e3e4a;
+            min-width:40px;
+            position: relative;
+        }
+        .snap-btn.active { background-color: var(--accent-color); color: white; font-weight: bold; }
+        .snap-btn.pressed { transform: translateY(2px); }
+
+        .color-picker-btn {
+            flex: 0 0 40px;
+            margin-top: 20px;
+            padding: 10px 0;
+            background-color: #3e3e4a;
+            min-width: 40px;
+        }
+        .color-picker-btn:hover { background-color: var(--accent-color); color: white; }
+        .color-picker-btn.active { background-color: var(--accent-color); color: white; }
+        
+        .color-input-highlight { border: 2px solid black !important; }
+        .color-input-selected { border: 2px solid white !important; }
+
+        .dropdown-menu {
+            position: absolute;
+            top: -115px; 
+            right: 80px; 
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            display: none;
+            flex-direction: column;
+            z-index: 50;
+            overflow: hidden;
+            min-width: 100px;
+        }
+        .dropdown-menu.show { display: flex; animation: fadeIn 0.15s ease; }
+        .dropdown-menu button {
+            width: 100%;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            justify-content: flex-start;
+            background-color: transparent;
+            border-radius: 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .dropdown-menu button:last-child { border-bottom: none; }
+        .dropdown-menu button:hover { background-color: var(--accent-color); color: white; }
+        .toolbar.toolbar-right .dropdown-menu { right: auto; left: 80px; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+        input[type="color"] { width: 100%; height: 36px; border: none; background: none; cursor: pointer; padding: 0; border-radius: 4px; }
+        input[type="range"] { width: 100%; cursor: pointer; accent-color: var(--accent-color); }
+        .value-display { color: var(--accent-color); font-weight: normal; }
+        .status-text {
+            font-size: 0.8rem;
+            color: #aaa;
+            margin-top: -8px;
+            line-height: 1.4;
+            border-top: 1px solid var(--border-color);
+            background: rgba(0,0,0,0.2);
+            padding: 8px;
+            border-radius: 4px;
+        }
+
+        #help-panel {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 400px;
+            max-width: 90%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 20px;
+            z-index: 200;
+            display: none;
+        }
+        #help-panel.visible { display: block; animation: popIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+        @keyframes popIn { from { opacity: 0; transform: translate(-50%, -40%) scale(0.95); } to { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+        #help-panel h2 { margin-top: 0; font-size: 1.2rem; color: var(--text-color); border-bottom: 1px solid var(--border-color); padding-bottom: 10px; margin-bottom: 15px; }
+        #help-content { font-size: 0.9rem; line-height: 1.5; color: #ccc; max-height: 60vh; overflow-y: auto; }
+        #help-content b { color: var(--text-color); }
+        #help-content span[style*='color:var(--accent-color)'], #help-content span[style*='color:#e74c3c'] { font-weight: bold; }
+        #close-help { margin-top: 20px; width: 100%; padding: 10px; background-color: var(--accent-color); color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: 600; }
+        #close-help:hover { background-color: var(--accent-hover); }
+
+        #zoom-controls {
+            display: none; 
+            flex-direction: column;
+            gap: 8px;
+            padding: 8px;
+            background: rgba(0, 0, 0, 0.2);
+            animation: slideDown 0.2s ease-out;
+        }
+        @keyframes slideDown { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+        .zoom-header { display: flex; justify-content: space-between; font-size: 0.75rem; color: #ccc; font-weight: 600; }
+
+        #fab {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--accent-color);
+            color: var(--accent-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 5;
+            pointer-events: none;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        #fab.visible { pointer-events: auto; opacity: 1; transform: scale(1); }
+        #fab:hover { background-color: var(--accent-color); color: white; }
+        #fab.fab-right { left: auto; right: 20px; }
+        #fab svg { width: 24px; height: 24px; fill: currentColor; }
+
+        #color-canvas { display: none; }
+        #btn-order-path { flex: 0 0 40px; padding: 10px 0; min-width: 40px; }
+
+        /* Pan Controls Container */
+                /* Pan Controls Container */
+        #pan-controls {
+            position: absolute;
+            bottom: 20px;
+            right: 20px; 
+            z-index: 15; 
+            display: none; 
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            /* FIX: Ensure container has no size or background of its own */
+            width: auto;
+            height: auto;
+            background: transparent; 
+        }
+
+        /* Show only in Select Mode */
+        body.mode-select #pan-controls {
+            display: flex;
+        }
+
+        /* Positioning logic: If FAB is Right, Controls go Left */
+        #pan-controls.pan-left {
+            right: auto;
+            left: 20px;
+        }
+
+        .pan-row {
+            display: flex;
+            gap: 4px;
+        }
+
+        .pan-btn {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-color);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s, transform 0.1s;
+            user-select: none;
+        }
+
+        .pan-btn:hover {
+            background-color: var(--accent-color);
+            color: white;
+        }
+
+        .pan-btn:active {
+            transform: scale(0.95);
+            background-color: var(--accent-hover);
+        }
+
+        .pan-btn svg {
+            width: 20px;
+            height: 20px;
+            fill: currentColor;
+        }
+        
+        .rotation-ghost {
+            opacity: 0.3;
+            pointer-events: none;
+            stroke-dasharray: 4 2;
+        }
+    </style>
+</head>
+<body class="mode-select">
+
+    <input type="file" id="file-input" accept=".svg,image/*" style="display: none;">
+    <canvas id="color-canvas"></canvas>
+
+    <div id="app">
+        <div id="bg-layer"></div>
+        <div id="fab" title="Open Toolbar"></div>
+
+        <!-- Pan Controls -->
+        <div id="pan-controls">
+            <button class="pan-btn" data-dir="up" title="Pan Up">
+                <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+            </button>
+            <div class="pan-row">
+                <button class="pan-btn" data-dir="left" title="Pan Left">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                </button>
+                <button class="pan-btn" data-dir="right" title="Pan Right">
+                    <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+                </button>
+            </div>
+            <button class="pan-btn" data-dir="down" title="Pan Down">
+                <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+            </button>
+        </div>
+
+        <nav class="toolbar" id="toolbar">
+            <button class="undo-btn" id="btn-undo" title="Undo">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+                </svg>
+            </button>
+
+            <button class="help-btn" id="btn-help" title="Help">?</button>
+            
+            <button class="redo-btn" id="btn-redo" title="Redo">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/>
+                </svg>
+            </button>
+
+            <button class="close-btn" id="btn-close-toolbar" title="Minimize Toolbar">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">Tools</div>
+                <div class="button-row">
+                    <button id="btn-draw">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg> 
+                        Draw
+                    </button>
+                    <button id="btn-select" class="active">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4.6z"/></svg>
+                        Select
+                    </button>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-color">Stroke</label>
+                        <input type="color" id="stroke-color" value="#4a90e2">
+                    </div>
+                    <div>
+                        <button id="btn-color-picker" class="color-picker-btn" title="Pick Color from Reference">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M20.71 5.63l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-3.12 3.12-1.93-1.91-1.41 1.41 1.42 1.42L3 16.25V21h4.75l8.92-8.92 1.42 1.42 1.41-1.41-1.92-1.92 3.12-3.12c.4-.4.4-1.03.01-1.42zM6.92 19L5 17.08l8.06-8.06 1.92 1.92L6.92 19z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div>
+                        <label for="fill-color">Fill</label>
+                        <input type="color" id="fill-color" value="#ffffff">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="side-by-side">
+                    <div>
+                        <label for="stroke-opacity">Stroke Opacity</label>
+                        <input type="range" id="stroke-opacity" min="0" max="1" step="0.1" value="1">
+                    </div>
+                    <div>
+                        <button id="btn-snap" class="snap-btn active pressed" title="Toggle Snap">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2l-5.5 9h11z M12 22l5.5-9h-11z M3.5 9l5.5 9v-11z M20.5 9l-5.5 9v-11z"/>
+                            </svg>
+                        </button>
+                    </div>
+                    <div>
+                        <label for="fill-opacity">Fill Opacity</label>
+                        <input type="range" id="fill-opacity" min="0" max="1" step="0.1" value="0">
+                    </div>
+                </div>
+            </div>
+
+            <div class="toolbar-group">
+                <div class="toolbar-label">
+                    <span>Stroke Width</span>
+                    <span id="width-val" class="value-display">4px</span>
+                </div>
+                <input type="range" id="width-slider" min="1" max="100" value="4">
+            </div>
+
+            <div class="toolbar-group">
+            <div class="toolbar-label">Actions</div>
+                    
+            <div class="button-row">
+                <button id="btn-close-shape">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 12h16"></path>
+                        <path d="M12 4v16"></path>
+                        <circle cx="12" cy="12" r="10"></circle>
+                    </svg>
+                    Close / Merge
+                </button>
+                
+                <button id="btn-trace-color" title="Trace color area from reference image">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H5V5h14v14z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Trace
+        </button>
+            </div>
+
+                <div class="button-row">
+                    <button id="btn-import" class="import-btn" title="Import Image or SVG">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/>
+                        </svg>
+                        Import
+                    </button>
+                    
+                    <button id="btn-zoom-ui" class="icon-btn" title="Zoom Tool">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                            <line x1="11" y1="8" x2="11" y2="14"></line>
+                            <line x1="8" y1="11" x2="14" y2="11"></line>
+                        </svg>
+                    </button>
+
+                    <button id="btn-export" class="export-btn" title="Export as SVG">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2v9.67z"/>
+                        </svg>
+                        Export
+                    </button>
+                </div>
+
+                <div id="zoom-controls">
+                    <div class="zoom-header">
+                        <span>Canvas Zoom</span>
+                        <span id="zoom-ui-val">100%</span>
+                    </div>
+                    <input type="range" id="zoom-ui-slider" min="0.1" max="10.0" step="0.1" value="1">
+                </div>
+                <div class="button-row">
+                    <button id="btn-clear-ref" title="Clear Background Image">Clear Ref.</button>
+
+                    <div style="position: relative;">
+                        <button id="btn-order-path" title="Reorder Path Layer">
+                            <svg width="16" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/>
+                            </svg>
+                        </button>
+                        <div id="order-menu" class="dropdown-menu">
+                            <button data-action="top">Top (Front)</button>
+                            <button data-action="pull">Pull (Forward)</button>
+                            <button data-action="push">Push (Backward)</button>
+                            <button data-action="bottom">Bottom (Back)</button>
+                        </div>
+                    </div>
+
+                    <button id="btn-delete-selected" class="danger" style="display: none;">Delete</button>
+                    <button id="btn-clear" class="danger">Clear All</button>
+                </div>
+
+            </div>
+
+            <div class="status-text" id="status-text">Ready.</div>
+        </nav>
+
+        <div id="help-panel">
+            <h2>Instructions</h2>
+            <div id="help-content">
+                <b>Pan:</b> Hold <b>Right Mouse Button</b> or use 2 Fingers or buttons.<br>
+                <b>Zoom:</b> Press +/- or i/o, spread/pinch Fingers.<br>
+                <b>Select Mode:</b> Click path to select it, Shift+Click to select multiple.<br>
+                <b>Movement:</B> Drag the <b>Cross</b> over selected paths.</br>
+                <b>Rotation:</b> Drag the <b>Circled X</b> over a selected path to rotate it.<br/>
+                Hold Ctrl (or Cmd) and double-click a <b>Circled X</b> to reset it.<br>
+                Hold Ctrl (or Cmd) and drag a <b>Circled X</b> to change its pivot.</br>
+                <b>Red Circles</b> = <span style='color:#e74c3c'>Control Handles</span>.<br>
+                Drag <span style='color:#e74c3c'>Control Handles</span> to curve paths.</br>
+                Move selected paths by dragging its <b>Cross</b>.</br>
+                <b>D</b> or <b>Ctrl+D</b> duplicates the path in place.<br/>
+                Hold Ctrl (or Cmd) to snap <span style='color:#e74c3c'>Control Handles</span> or <b>Circled X</b> to multiples of 5.</br>
+                Hold Ctrl (or Cmd) to and Click an Anchor to delete it.</br>
+                <b>White Squares</b> = <span style='color:var(--accent-color)'>Anchor</span>.<br>
+                Press <b>Delete</b> or <b>Backspace</b> to delete selected paths.</br>
+                Press <b>H</b> or <b>V</b> to flip selected paths horizontally or vertically, respectfully.</br>
+                Double-click <span style='color:var(--accent-color)'>Anchor</span> to delete it.<br>
+                Double-click path to add <span style='color:var(--accent-color)'>Anchor</span>.<br>
+                <b>Snapping:</b> Drag <span style='color:var(--accent-color)'>Anchor</span> near paths or <span style='color:#e74c3c'>Anchors</span> to snap.<br>
+                <b>Close:</b> Select a path and either click "<b>Close / Merge</b>" or drag its start to its end. (this adds <span style='color:#e74c3c'>Control Handles</span>)</br>
+                <b>Merge:</b> Select multiple paths and click "<b>Close / Merge</b>".</br>
+                <b>Trace:</b> Select a color in the reference to make a path containing it.</br>
+            </div>
+            <button id="close-help">Close</button>
+        </div>
+
+        <svg id="canvas">
+            <defs></defs>
+            <g id="viewport">
+                <g id="layer-paths"></g>
+                <g id="layer-paths-active"></g>
+                <g id="layer-selection-box">
+                    <rect id="selection-rect" x="0" y="0" width="0" height="0"></rect>
+                </g>
+                <g id="layer-handles"></g>
+                <g id="layer-snap-indicator" class="snap-indicator">
+                    <circle id="snap-ring" r="12" fill="none" stroke="#e74c3c" stroke-width="2" stroke-dasharray="4 2" opacity="0.9"></circle>
+                    <circle id="snap-center" r="5" fill="#fff" stroke="#e74c3c" stroke-width="2"></circle>
+                </g>
+            </g>
+        </svg>
+    </div>
+
+    <script>
+        "use strict";
+        
+        const AppState = {
+            mode: 'select', 
+            isDrawing: false,
+            isDraggingHandle: false,
+            isDraggingPath: false,
+            isDraggingSegment: false,
+            isRotating: false,
+            rotatingPathIndex: null,
+            rotationStartAngle: 0,
+            rotationPivot: null,
+            rotationApplied: 0,
+            rotationHandleVector: null,
+            isMovingPivot: false, 
+            isSnapping: false,
+            snapEnabled: true,
+            isPanning: false, 
+            currentPathIndex: -1,
+            selectedPathIndices: [], 
+            activeHandleIndex: null, 
+            activeSegmentIndex: null, 
+            dragStartMouse: { x: 0, y: 0 },
+            panStartMouse: { x: 0, y: 0 }, 
+            paths: [], 
+            rawPoints: [], 
+            styles: {
+                strokeColor: '#4a90e2',
+                fillColor: '#ffffff',
+                strokeOpacity: 1.0,
+                fillOpacity: 0.0, 
+                width: 4,
+                drawThreshold: 2,
+                autoClose: false,
+                baseSnapThreshold: 12,
+                simplificationTolerance: 1.5
+            },
+            toolbarState: { isLeft: true, isToolbarOpen: true, bufferDistance: 40 },
+            snapTarget: null,
+            view: { x: 0, y: 0, zoom: 1 },
+            lastMouse: { x: 0, y: 0 },
+            dragStartControlLength: 0,
+            colorPickerActive: false,
+            selectedColorInput: null,
+            referenceImage: null,
+            referenceImageData: null,
+            isBoxSelecting: false,
+            boxStart: null,
+            clipboard: null,
+            rotationGhostElement: null // NEW: Reference to the visual copy
+        };
+
+        const History = { undoStack: [], redoStack: [], limit: 50 };
+
+        const UI = {
+            app: document.getElementById('app'),
+            bgLayer: document.getElementById('bg-layer'),
+            canvas: document.getElementById('canvas'),
+            viewport: document.getElementById('viewport'), 
+            layerPaths: document.getElementById('layer-paths'),
+            layerPathsActive: document.getElementById('layer-paths-active'),
+            layerHandles: document.getElementById('layer-handles'),
+            layerSnap: document.getElementById('layer-snap-indicator'),
+            snapRing: document.getElementById('snap-ring'),
+            snapCenter: document.getElementById('snap-center'),
+            selectionRect: document.getElementById('selection-rect'),
+            toolbar: document.getElementById('toolbar'),
+            fab: document.getElementById('fab'),
+            panControls: document.getElementById('pan-controls'),
+            btnDraw: document.getElementById('btn-draw'),
+            btnSelect: document.getElementById('btn-select'),
+            btnSnap: document.getElementById('btn-snap'),
+            btnCloseShape: document.getElementById('btn-close-shape'),
+            btnExport: document.getElementById('btn-export'),
+            btnImport: document.getElementById('btn-import'),
+            fileInput: document.getElementById('file-input'),
+            btnDelete: document.getElementById('btn-delete-selected'),
+            btnClear: document.getElementById('btn-clear'),
+            btnClearRef: document.getElementById('btn-clear-ref'),
+            btnCloseToolbar: document.getElementById('btn-close-toolbar'),
+            btnOrderPath: document.getElementById('btn-order-path'),
+            orderMenu: document.getElementById('order-menu'),
+            btnZoomUI: document.getElementById('btn-zoom-ui'),
+            zoomControls: document.getElementById('zoom-controls'),
+            zoomSlider: document.getElementById('zoom-ui-slider'),
+            zoomVal: document.getElementById('zoom-ui-val'),
+            strokeColor: document.getElementById('stroke-color'),
+            fillColor: document.getElementById('fill-color'),
+            strokeOpacity: document.getElementById('stroke-opacity'),
+            fillOpacity: document.getElementById('fill-opacity'),
+            widthSlider: document.getElementById('width-slider'),
+            widthVal: document.getElementById('width-val'),
+            statusText: document.getElementById('status-text'),
+            body: document.body,
+            btnHelp: document.getElementById('btn-help'),
+            btnUndo: document.getElementById('btn-undo'), // ADDED
+            btnRedo: document.getElementById('btn-redo'), // ADDED
+            helpPanel: document.getElementById('help-panel'),
+            closeHelp: document.getElementById('close-help'),
+            btnColorPicker: document.getElementById('btn-color-picker'),
+            colorCanvas: document.getElementById('color-canvas'),
+            btnTraceColor: document.getElementById('btn-trace-color'),
+        };
+
+        const Icons = {
+            draw: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>',
+            select: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M7 2l12 11.2-5.8.5 3.3 7.3-2.2.9-3.2-7.4-4.4 4.6z"/></svg>',
+            menu: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>'
+        };
+
+        function saveState() {
+            const snapshot = JSON.parse(JSON.stringify(AppState.paths));
+            History.undoStack.push(snapshot);
+            if (History.undoStack.length > History.limit) History.undoStack.shift();
+            History.redoStack = []; 
+        }
+
+        function undo() {
+            if (AppState.isDrawing) { cancelDrawing(); return; }
+            if (History.undoStack.length === 0) return;
+            History.redoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const previousState = History.undoStack.pop();
+            AppState.paths = previousState;
+            AppState.selectedPathIndices = AppState.selectedPathIndices.filter(idx => idx < AppState.paths.length);
+            rebuildCanvas();
+        }
+
+        function redo() {
+            if (AppState.isDrawing) return;
+            if (History.redoStack.length === 0) return;
+            History.undoStack.push(JSON.parse(JSON.stringify(AppState.paths)));
+            const nextState = History.redoStack.pop();
+            AppState.paths = nextState;
+            AppState.selectedPathIndices = AppState.selectedPathIndices.filter(idx => idx < AppState.paths.length);
+            rebuildCanvas();
+        }
+
+        function cancelDrawing() {
+            AppState.isDrawing = false;
+            AppState.isSnapping = false;
+            AppState.snapTarget = null;
+            UI.layerSnap.style.display = 'none';
+            AppState.rawPoints = [];
+            const currentEl = UI.layerPaths.lastElementChild || UI.layerPathsActive.lastElementChild;
+            if (currentEl) currentEl.remove();
+            AppState.currentPathIndex = -1;
+        }
+
+        function rebuildCanvas() {
+            UI.layerPaths.innerHTML = '';
+            UI.layerPathsActive.innerHTML = '';
+            UI.layerHandles.innerHTML = '';
+            
+            AppState.paths.forEach((pathData, index) => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("class", "path-element");
+                pathEl.setAttribute("stroke", pathData.strokeColor);
+                pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor);
+                pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round");
+                pathEl.setAttribute("stroke-linejoin", "round");
+                
+                // FIX: Consistent attribute application
+                pathEl.setAttribute("vector-effect", "non-scaling-stroke");
+                
+                pathEl.dataset.index = index;
+                pathEl.addEventListener('dblclick', (e) => handlePathDoubleClick(e, index));
+                
+                UI.layerPaths.appendChild(pathEl);
+                updatePathD(index);
+            });
+            renderSelectionHandles();
+        }
+
+        function getSVGPoint(clientX, clientY) {
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = clientX;
+            pt.y = clientY;
+            return pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+        }
+
+        function setStatus(msg) { UI.statusText.innerHTML = msg; }
+
+        function checkToolbarProximity(clientX) {
+            if (AppState.mode !== 'draw') return;
+            const activeElement = AppState.toolbarState.isToolbarOpen ? UI.toolbar : UI.fab;
+            if (!AppState.toolbarState.isToolbarOpen && !UI.fab.classList.contains('visible')) return;
+            const rect = activeElement.getBoundingClientRect();
+            const buffer = AppState.toolbarState.bufferDistance; 
+
+            if (AppState.toolbarState.isLeft) {
+                if (clientX < (rect.right + buffer)) moveToolbarTo('right');
+            } else {
+                if (clientX > (rect.left - buffer)) moveToolbarTo('left');
+            }
+        }
+
+        function moveToolbarTo(side) {
+            if (side === 'right') {
+                AppState.toolbarState.isLeft = false;
+                UI.toolbar.classList.remove('toolbar-left');
+                UI.toolbar.classList.add('toolbar-right');
+                UI.fab.classList.remove('fab-left');
+                UI.fab.classList.add('fab-right');
+                // NEW: Move pan controls to left
+                UI.panControls.classList.add('pan-left');
+            } else {
+                AppState.toolbarState.isLeft = true;
+                UI.toolbar.classList.remove('toolbar-right');
+                UI.toolbar.classList.add('toolbar-left');
+                UI.fab.classList.remove('fab-right');
+                UI.fab.classList.add('fab-left');
+                // NEW: Move pan controls to right (default)
+                UI.panControls.classList.remove('pan-left');
+            }
+        }
+
+        function toggleToolbar() {
+            // If we are in Select mode, the close button acts as "Switch to Draw Mode"
+            if (AppState.mode === 'select') {
+                setMode('draw');
+            } else {
+                // If we are in Draw mode, just toggle visibility
+                AppState.toolbarState.isToolbarOpen = !AppState.toolbarState.isToolbarOpen;
+                UI.toolbar.classList.toggle('minimized', !AppState.toolbarState.isToolbarOpen);
+                UI.fab.classList.toggle('visible', !AppState.toolbarState.isToolbarOpen);
+            }
+        }
+
+        function updateFabIcon() {
+            if (AppState.mode === 'draw') {
+                UI.fab.innerHTML = Icons.draw;
+                UI.fab.title = "Draw Mode - Click to Open Toolbar";
+            } else {
+                UI.fab.innerHTML = Icons.select;
+                UI.fab.title = "Select Mode - Click to Open Toolbar";
+            }
+        }
+
+        function updateCloseShapeUI() {
+            if (AppState.selectedPathIndices.length === 1) {
+                const idx = AppState.selectedPathIndices[0];
+                const path = AppState.paths[idx];
+                UI.btnCloseShape.classList.toggle('active', path.closed);
+            } else {
+                UI.btnCloseShape.classList.toggle('active', AppState.styles.autoClose);
+            }
+        }
+
+        function toggleOrderMenu() { UI.orderMenu.classList.toggle('show'); }
+        function closeOrderMenu() { UI.orderMenu.classList.remove('show'); }
+
+        function reorderPath(action) {
+            if (AppState.selectedPathIndices.length === 0) { closeOrderMenu(); setStatus("Select a path first to reorder."); return; }
+            saveState();
+            const indices = [...AppState.selectedPathIndices].sort((a, b) => a - b);
+            const selectedPaths = indices.map(i => AppState.paths[i]);
+
+            if (action === 'top') {
+                AppState.paths = AppState.paths.filter(p => !selectedPaths.includes(p));
+                AppState.paths.push(...selectedPaths);
+            } else if (action === 'bottom') {
+                AppState.paths = AppState.paths.filter(p => !selectedPaths.includes(p));
+                AppState.paths.unshift(...selectedPaths);
+            } else if (action === 'push') {
+                for (let i = indices.length - 1; i >= 0; i--) {
+                    const idx = indices[i];
+                    if (idx > 0) { const temp = AppState.paths[idx]; AppState.paths[idx] = AppState.paths[idx - 1]; AppState.paths[idx - 1] = temp; }
+                }
+            } else if (action === 'pull') {
+                for (let i = 0; i < indices.length; i++) {
+                    const idx = indices[i];
+                    if (idx < AppState.paths.length - 1) { const temp = AppState.paths[idx]; AppState.paths[idx] = AppState.paths[idx + 1]; AppState.paths[idx + 1] = temp; }
+                }
+            }
+
+            rebuildCanvas();
+            const newIndices = [];
+            AppState.paths.forEach((p, i) => { if (selectedPaths.includes(p)) newIndices.push(i); });
+            AppState.selectedPathIndices = newIndices;
+            updateSelectionVisuals();
+            closeOrderMenu();
+            setStatus(`Paths moved to ${action}.`);
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!UI.btnOrderPath.contains(e.target) && !UI.orderMenu.contains(e.target)) closeOrderMenu();
+        });
+
+        UI.btnOrderPath.addEventListener('click', (e) => { e.stopPropagation(); toggleOrderMenu(); });
+        UI.orderMenu.querySelectorAll('button').forEach(btn => {
+            btn.addEventListener('click', (e) => { e.stopPropagation(); reorderPath(e.target.dataset.action); });
+        });
+
+        // --- ZOOM & PAN LOGIC ---
+
+        function updateViewportTransform() {
+            UI.viewport.setAttribute("transform", `translate(${AppState.view.x}, ${AppState.view.y}) scale(${AppState.view.zoom})`);
+            UI.bgLayer.style.transform = `translate(${AppState.view.x}px, ${AppState.view.y}px) scale(${AppState.view.zoom})`;
+            if(UI.zoomControls.style.display === 'flex') {
+                UI.zoomSlider.value = AppState.view.zoom;
+                UI.zoomVal.textContent = Math.round(AppState.view.zoom * 100) + '%';
+            }
+            if (AppState.selectedPathIndices.length > 0) renderSelectionHandles();
+        }
+
+        function zoom(factor, centerX, centerY) {
+            if (centerX === undefined) centerX = AppState.lastMouse.x;
+            if (centerY === undefined) centerY = AppState.lastMouse.y;
+
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = centerX; pt.y = centerY;
+            const worldPt = pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+
+            const newZoom = Math.max(0.1, Math.min(10.0, AppState.view.zoom * factor));
+
+            AppState.view.x = centerX - (worldPt.x * newZoom);
+            AppState.view.y = centerY - (worldPt.y * newZoom);
+            AppState.view.zoom = newZoom;
+
+            updateViewportTransform();
+        }
+        
+        function toggleSelection(index, shiftKey) {
+            if (index === -1) { 
+                AppState.selectedPathIndices = []; 
+                updateSelectionVisuals(); 
+                return; 
+            }
+            if (shiftKey) {
+                const idxPos = AppState.selectedPathIndices.indexOf(index);
+                if (idxPos > -1) AppState.selectedPathIndices.splice(idxPos, 1); 
+                else AppState.selectedPathIndices.push(index); 
+            } else {
+                AppState.selectedPathIndices = [index];
+            }
+            
+            // FIX: Always reset rotation pivot to center on selection
+            if (AppState.selectedPathIndices.length === 1) {
+                const pathData = AppState.paths[AppState.selectedPathIndices[0]];
+                if (pathData && pathData.points && pathData.points.length > 0) {
+                    const pts = pathData.points;
+                    const minX = Math.min(...pts.map(pt => pt.p.x));
+                    const minY = Math.min(...pts.map(pt => pt.p.y));
+                    const maxX = Math.max(...pts.map(pt => pt.p.x));
+                    const maxY = Math.max(...pts.map(pt => pt.p.y));
+                    pathData.rotationPivot = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+                }
+            }
+            
+            updateSelectionVisuals();
+        }
+
+        function zoomCentered(newZoomLevel) {
+            const centerX = window.innerWidth / 2;
+            const centerY = window.innerHeight / 2;
+            const pt = UI.canvas.createSVGPoint();
+            pt.x = centerX; pt.y = centerY;
+            const worldPt = pt.matrixTransform(UI.viewport.getScreenCTM().inverse());
+            const newZoom = Math.max(0.1, Math.min(10.0, parseFloat(newZoomLevel)));
+            AppState.view.x = centerX - (worldPt.x * newZoom);
+            AppState.view.y = centerY - (worldPt.y * newZoom);
+            AppState.view.zoom = newZoom;
+            updateViewportTransform();
+        }
+
+        function resetView() {
+            AppState.view.x = 0; AppState.view.y = 0; AppState.view.zoom = 1;
+            updateViewportTransform();
+            setStatus("View reset to center.");
+        }
+
+        // --- MATH & LOGIC ---
+
+        function cubicBezier(p0, cp0, cp1, p1, t) {
+            const oneMinusT = 1 - t;
+            return {
+                x: Math.pow(oneMinusT, 3) * p0.x + 3 * Math.pow(oneMinusT, 2) * t * cp0.x + 3 * oneMinusT * Math.pow(t, 2) * cp1.x + Math.pow(t, 3) * p1.x,
+                y: Math.pow(oneMinusT, 3) * p0.y + 3 * Math.pow(oneMinusT, 2) * t * cp0.y + 3 * oneMinusT * Math.pow(t, 2) * cp1.y + Math.pow(t, 3) * p1.y
+            };
+        }
+
+        function getBezierSegmentDistance(p0, cp0, cp1, p1, pt) {
+            let minDist = Infinity;
+            for (let t = 0; t <= 1; t += 0.05) {
+                const b = cubicBezier(p0, cp0, cp1, p1, t);
+                const d = Math.hypot(b.x - pt.x, b.y - pt.y);
+                if (d < minDist) minDist = d;
+            }
+            return minDist;
+        }
+
+        function simplifyPath(points, tolerance, zoom = 1) {
+            if (points.length <= 2) return points;
+            
+            const effectiveTolerance = tolerance / zoom;
+            const distThreshold = Math.max(0.5, effectiveTolerance * 0.5);
+            
+            // 1. Filter points based on distance threshold
+            let filtered = [points[0]];
+            for (let i = 1; i < points.length; i++) {
+                const d = Math.hypot(points[i].x - points[i-1].x, points[i].y - points[i-1].y);
+                if (d > distThreshold) filtered.push(points[i]); 
+            }
+            if (filtered[filtered.length-1] !== points[points.length-1]) filtered.push(points[points.length-1]);
+            
+            // 2. Simplify using Ramer-Douglas-Peucker
+            // This will reduce small lines (or straight lines) to just 2 points (Start and End)
+            const simplified = ramerDouglasPeucker(filtered, effectiveTolerance);
+
+            // Return the simplified points. 
+            // If the line is straight, this will be just 2 points (resulting in 2 Anchors).
+            return simplified;
+        }
+
+        function ramerDouglasPeucker(points, epsilon) {
+            if (points.length <= 2) return points;
+            let dmax = 0, index = 0, end = points.length - 1;
+            for (let i = 1; i < end; i++) {
+                const d = pointLineDistance(points[i], points[0], points[end]);
+                if (d > dmax) { index = i; dmax = d; }
+            }
+            if (dmax > epsilon) {
+                return ramerDouglasPeucker(points.slice(0, index + 1), epsilon).slice(0, -1).concat(ramerDouglasPeucker(points.slice(index, end + 1), epsilon));
+            }
+            return [points[0], points[end]];
+        }
+
+        function pointLineDistance(point, start, end) {
+            let x = start.x, y = start.y, dx = end.x - x, dy = end.y - y;
+            if (dx !== 0 || dy !== 0) {
+                const t = ((point.x - x) * dx + (point.y - y) * dy) / (dx * dx + dy * dy);
+                if (t > 1) { x = end.x; y = end.y; }
+                else if (t > 0) { x += dx * t; y += dy * t; }
+            }
+            return Math.hypot(point.x - x, point.y - y);
+        }
+        
+        // Helper to smooth jagged pixel edges before simplification
+        function smoothPoints(points, iterations = 2) {
+            if (points.length < 3) return points;
+            let output = points.map(p => ({ x: p.x, y: p.y })); // Deep copy
+            
+            for (let k = 0; k < iterations; k++) {
+                const newOutput = [];
+                for (let i = 0; i < output.length; i++) {
+                    // Wrap around for closed loop
+                    const prev = output[(i - 1 + output.length) % output.length];
+                    const curr = output[i];
+                    const next = output[(i + 1) % output.length];
+                    
+                    // Simple moving average
+                    newOutput.push({
+                        x: (prev.x + curr.x + next.x) / 3,
+                        y: (prev.y + curr.y + next.y) / 3
+                    });
+                }
+                output = newOutput;
+            }
+            return output;
+        }
+
+        function calculateControlPoints(points) {
+            const result = points.map(p => ({ p: {...p}, cIn: {...p}, cOut: {...p} }));
+            const n = points.length;
+            if (n < 2) return result;
+
+            const segments = [];
+            for (let i = 0; i < n - 1; i++) {
+                const dx = points[i+1].x - points[i].x;
+                const dy = points[i+1].y - points[i].y;
+                const len = Math.hypot(dx, dy);
+                segments.push({ x: len > 0 ? dx/len : 0, y: len > 0 ? dy/len : 0, len });
+            }
+
+            const cornerAngleThreshold = 2.2; 
+
+            for (let i = 0; i < n; i++) {
+                const curr = points[i];
+
+                if (i > 0 && i < n - 1) {
+                    const segIn = segments[i-1];
+                    const segOut = segments[i];
+
+                    const dot = -(segIn.x * segOut.x) - (segIn.y * segOut.y);
+                    const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+
+                    if (angle > cornerAngleThreshold) {
+                        const distIn = segIn.len / 3;
+                        const distOut = segOut.len / 3;
+                        result[i].cIn = { x: curr.x - segIn.x * distIn, y: curr.y - segIn.y * distIn };
+                        result[i].cOut = { x: curr.x + segOut.x * distOut, y: curr.y + segOut.y * distOut };
+                    } else {
+                        const prev = points[i-1];
+                        const next = points[i+1];
+                        const tension = 0.4; 
+
+                        const tx = (next.x - prev.x);
+                        const ty = (next.y - prev.y);
+
+                        let cpOutX = curr.x + tx * tension;
+                        let cpOutY = curr.y + ty * tension;
+                        let cpInX = curr.x - tx * tension;
+                        let cpInY = curr.y - ty * tension;
+
+                        const maxLenOut = segOut.len;
+                        const cpOutDist = Math.hypot(cpOutX - curr.x, cpOutY - curr.y);
+                        if (cpOutDist > maxLenOut && cpOutDist > 0) {
+                            const ratio = maxLenOut / cpOutDist;
+                            cpOutX = curr.x + (cpOutX - curr.x) * ratio;
+                            cpOutY = curr.y + (cpOutY - curr.y) * ratio;
+                        }
+
+                        const maxLenIn = segIn.len;
+                        const cpInDist = Math.hypot(cpInX - curr.x, cpInY - curr.y);
+                        if (cpInDist > maxLenIn && cpInDist > 0) {
+                            const ratio = maxLenIn / cpInDist;
+                            cpInX = curr.x + (cpInX - curr.x) * ratio;
+                            cpInY = curr.y + (cpInY - curr.y) * ratio;
+                        }
+
+                        result[i].cOut = { x: cpOutX, y: cpOutY };
+                        result[i].cIn = { x: cpInX, y: cpInY };
+                    }
+                }
+            }
+
+            result[0].cIn = { ...result[0].p };
+            if (n > 1) {
+                const len = segments[0].len / 3;
+                result[0].cOut = { x: points[0].x + segments[0].x * len, y: points[0].y + segments[0].y * len };
+            }
+
+            result[n-1].cOut = { ...result[n-1].p };
+            if (n > 1) {
+                const len = segments[n-2].len / 3;
+                result[n-1].cIn = { x: points[n-1].x - segments[n-2].x * len, y: points[n-1].y - segments[n-2].y * len };
+            }
+
+            return result;
+        }
+
+       function getNearestSegmentIndex(pathData, pt) {
+            const pts = pathData.points;
+            let minDist = Infinity;
+            let bestIndex = -1;
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p1 = pts[i]; const p2 = pts[i+1];
+                const dist = getBezierSegmentDistance(p1.p, p1.cOut, p2.cIn, p2.p, pt);
+                // Use <= so that the last segment checked (closing segment) wins in a tie
+                if (dist <= minDist) { minDist = dist; bestIndex = i; }
+            }
+            if (pathData.closed) {
+                const p1 = pts[pts.length - 1]; const p2 = pts[0];
+                const dist = getBezierSegmentDistance(p1.p, p1.cOut, p2.cIn, p2.p, pt);
+                // Wins in a tie
+                if (dist <= minDist) { minDist = dist; bestIndex = pts.length - 1; }
+            }
+            return { index: bestIndex, dist: minDist };
+        }
+
+        function getTFromPoint(p0, cp0, cp1, p1, pt) {
+            let bestT = 0.5; let bestDist = Infinity;
+            for(let t = 0; t <= 1; t += 0.05) {
+                const b = cubicBezier(p0, cp0, cp1, p1, t);
+                const d = Math.hypot(b.x - pt.x, b.y - pt.y);
+                if (d < bestDist) { bestDist = d; bestT = t; }
+            }
+            return { t: bestT, dist: bestDist };
+        }
+
+        function splitBezierCurve(p0, cp0, cp1, p1, t) {
+            const u = 1 - t;
+            const pA = { x: u*p0.x + t*cp0.x, y: u*p0.y + t*cp0.y };
+            const pB = { x: u*cp0.x + t*cp1.x, y: u*cp0.y + t*cp1.y };
+            const pC = { x: u*cp1.x + t*p1.x, y: u*cp1.y + t*p1.y };
+            const pD = { x: u*pA.x + t*pB.x, y: u*pA.y + t*pB.y };
+            const pE = { x: u*pB.x + t*pC.x, y: u*pB.y + t*pC.y };
+            const pMid = { x: u*pD.x + t*pE.x, y: u*pD.y + t*pE.y };
+            const left = { p: p0, cOut: pA, cIn: { x: p0.x, y: p0.y } };
+            const right = { p: p1, cIn: pC };
+            return { leftNode: left, splitNode: { p: pMid, cIn: pD, cOut: pE }, rightNode: right };
+        }
+
+        // --- DRAWING ---
+
+                function startDrawing(x, y) {
+            AppState.isDrawing = true;
+            AppState.rawPoints = [];
+            
+            // Snap start point
+            if (AppState.snapEnabled) {
+                const threshold = getSnapThresholdInWorldCoords();
+                const target = findSnapTarget(x, y, -1, -1, threshold);
+                if (target) {
+                    x = target.x;
+                    y = target.y;
+                    AppState.snapTarget = target;
+                    
+                    // Visual feedback
+                    UI.layerSnap.style.display = 'block';
+                    const ringRadius = threshold;
+                    const centerRadius = 5 / AppState.view.zoom;
+                    UI.snapRing.setAttribute('cx', x); UI.snapRing.setAttribute('cy', y);
+                    UI.snapRing.setAttribute('r', ringRadius);
+                    UI.snapCenter.setAttribute('cx', x); UI.snapCenter.setAttribute('cy', y);
+                    UI.snapCenter.setAttribute('r', centerRadius);
+                }
+            }
+            
+            AppState.rawPoints.push({ x, y });
+            
+            const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+            pathEl.setAttribute("class", "path-element");
+            pathEl.setAttribute("stroke", AppState.styles.strokeColor);
+            pathEl.setAttribute("fill", AppState.styles.fillColor);
+            pathEl.setAttribute("stroke-width", AppState.styles.width);
+            pathEl.setAttribute("stroke-opacity", AppState.styles.strokeOpacity);
+            pathEl.setAttribute("fill-opacity", AppState.styles.fillOpacity);
+            pathEl.setAttribute("stroke-linecap", "round");
+            pathEl.setAttribute("stroke-linejoin", "round");
+            
+            // FIX: Helps browser calculate accurate repaint bounds for strokes
+            pathEl.setAttribute("vector-effect", "non-scaling-stroke");
+            
+            pathEl.dataset.index = AppState.paths.length;
+            UI.layerPaths.appendChild(pathEl);
+            
+            pathEl.setAttribute("d", `M ${x.toFixed(1)} ${y.toFixed(1)}`);
+        }
+
+        function drawMove(x, y) {
+            if (!AppState.isDrawing) return;
+
+            // 1. Identify Snap Target
+            let snapTarget = null;
+            if (AppState.snapEnabled) {
+                const threshold = getSnapThresholdInWorldCoords();
+                
+                // Check external paths
+                snapTarget = findSnapTarget(x, y, -1, -1, threshold);
+                
+                // Check Self (Start Point) for closing
+                // Only check if we have enough points to make a shape
+                if (AppState.rawPoints.length > 2) {
+                    const startPt = AppState.rawPoints[0];
+                    const d = Math.hypot(x - startPt.x, y - startPt.y);
+                    if (d < threshold) {
+                        // Prioritize closing snap over others? Or just let it be a target.
+                        // We create a synthetic target for the start point
+                        snapTarget = { x: startPt.x, y: startPt.y, type: 'anchor' };
+                    }
+                }
+            }
+
+            // 2. Determine Draw Coordinates (Snap logic)
+            let drawX = x;
+            let drawY = y;
+
+            if (snapTarget) {
+                // Force coordinates to snap target
+                drawX = snapTarget.x;
+                drawY = snapTarget.y;
+                AppState.snapTarget = snapTarget; // Store for stopDrawing
+
+                // Visual Feedback
+                UI.layerSnap.style.display = 'block';
+                const ringRadius = getSnapThresholdInWorldCoords();
+                const centerRadius = 5 / AppState.view.zoom;
+                UI.snapRing.setAttribute('cx', drawX); UI.snapRing.setAttribute('cy', drawY);
+                UI.snapRing.setAttribute('r', ringRadius);
+                UI.snapCenter.setAttribute('cx', drawX); UI.snapCenter.setAttribute('cy', drawY);
+                UI.snapCenter.setAttribute('r', centerRadius);
+            } else {
+                AppState.snapTarget = null;
+                UI.layerSnap.style.display = 'none';
+            }
+
+            // 3. Update Raw Points
+            const lastPoint = AppState.rawPoints[AppState.rawPoints.length - 1];
+            const dist = Math.hypot(drawX - lastPoint.x, drawY - lastPoint.y);
+            const effectiveThreshold = AppState.styles.drawThreshold / AppState.view.zoom;
+
+            // If moving far enough, add new point
+            if (dist > effectiveThreshold) {
+                AppState.rawPoints.push({ x: drawX, y: drawY });
+            } else if (snapTarget) {
+                // If we are snapping (but not moving far), force the last point to the target
+                // This ensures the line "jumps" to the target even if mouse hasn't moved far
+                AppState.rawPoints[AppState.rawPoints.length - 1] = { x: drawX, y: drawY };
+            }
+
+            // 4. Render Live Path
+            const d = AppState.rawPoints.reduce((acc, p, i) => {
+                return acc + (i === 0 ? `M ${p.x.toFixed(1)} ${p.y.toFixed(1)}` : ` L ${p.x.toFixed(1)} ${p.y.toFixed(1)}`);
+            }, "");
+            const pathEl = UI.layerPaths.lastElementChild || UI.layerPathsActive.lastElementChild;
+            if (pathEl) pathEl.setAttribute("d", d);
+        }
+
+        function stopDrawing() {
+            if (!AppState.isDrawing) return;
+            AppState.isDrawing = false;
+            UI.layerSnap.style.display = 'none';
+
+            // Final check: Lock the end point to snap target if active
+            if (AppState.snapTarget && AppState.rawPoints.length > 0) {
+                 AppState.rawPoints[AppState.rawPoints.length - 1] = { 
+                    x: AppState.snapTarget.x, 
+                    y: AppState.snapTarget.y 
+                };
+                
+                // Auto-Close Logic: If we snapped to the start point
+                if (AppState.rawPoints.length > 2) {
+                    const start = AppState.rawPoints[0];
+                    const end = AppState.rawPoints[AppState.rawPoints.length - 1];
+                    if (Math.hypot(start.x - end.x, start.y - end.y) < 1) {
+                        AppState.styles.autoClose = true; // Temporarily enable close
+                    }
+                }
+                AppState.snapTarget = null;
+            }
+
+            if (AppState.rawPoints.length > 1) {
+                const anchors = simplifyPath(AppState.rawPoints, AppState.styles.simplificationTolerance, AppState.view.zoom);
+                const splinePoints = calculateControlPoints(anchors);
+                const newPath = {
+                    strokeColor: AppState.styles.strokeColor, fillColor: AppState.styles.fillColor,
+                    strokeOpacity: AppState.styles.strokeOpacity, fillOpacity: AppState.styles.fillOpacity,
+                    width: parseInt(AppState.styles.width), points: splinePoints, closed: AppState.styles.autoClose
+                };
+                AppState.paths.push(newPath);
+                AppState.currentPathIndex = AppState.paths.length - 1;
+                
+                let newEl = UI.layerPaths.querySelector(`path[data-index="${AppState.currentPathIndex}"]`);
+                if (!newEl) newEl = UI.layerPathsActive.querySelector(`path[data-index="${AppState.currentPathIndex}"]`);
+                
+                if (newEl) newEl.addEventListener('dblclick', (e) => handlePathDoubleClick(e, AppState.currentPathIndex));
+                updatePathD(AppState.currentPathIndex);
+                
+                AppState.selectedPathIndices = [];
+                updateSelectionVisuals();
+                saveState();
+            } else {
+                // Remove if just a click
+                const currentEl = UI.layerPaths.lastElementChild || UI.layerPathsActive.lastElementChild;
+                if(currentEl) currentEl.remove();
+            }
+            AppState.rawPoints = [];
+        }
+
+        function updatePathD(index) {
+            const pathData = AppState.paths[index];
+            if (!pathData || !pathData.points) return;
+            const pts = pathData.points;
+            if (pts.length === 0) return;
+            let d = `M ${pts[0].p.x.toFixed(1)} ${pts[0].p.y.toFixed(1)}`;
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p1 = pts[i]; const p2 = pts[i+1];
+                d += ` C ${p1.cOut.x.toFixed(1)} ${p1.cOut.y.toFixed(1)}, ${p2.cIn.x.toFixed(1)} ${p2.cIn.y.toFixed(1)}, ${p2.p.x.toFixed(1)} ${p2.p.y.toFixed(1)}`;
+            }
+            if (pathData.closed) { 
+                const first = pts[0]; const last = pts[pts.length - 1];
+                d += ` C ${last.cOut.x.toFixed(1)} ${last.cOut.y.toFixed(1)}, ${first.cIn.x.toFixed(1)} ${first.cIn.y.toFixed(1)}, ${first.p.x.toFixed(1)} ${first.p.y.toFixed(1)} Z`; 
+            }
+            let pathEl = UI.layerPaths.querySelector(`path[data-index="${index}"]`);
+            if (!pathEl) pathEl = UI.layerPathsActive.querySelector(`path[data-index="${index}"]`);
+            if (pathEl) pathEl.setAttribute("d", d);
+        }
+
+        // --- SELECTION & EDITING ---
+
+        function renderHandlesForPath(index) {
+            const pathData = AppState.paths[index];
+            const pts = pathData.points;
+            const gLines = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const gHandles = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            gHandles.setAttribute("class", "handle-group");
+
+            const isControlActive = (cp, ap) => Math.hypot(cp.x - ap.x, cp.y - ap.y) > 0.5;
+
+            pts.forEach((pt, i) => {
+                const needsCOut = (i < pts.length - 1) || pathData.closed;
+                const needsCIn = (i > 0) || pathData.closed;
+
+                const cOutActive = needsCOut && isControlActive(pt.cOut, pt.p);
+                const cInActive = needsCIn && isControlActive(pt.cIn, pt.p);
+
+                if (cOutActive) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cOut.x); l.setAttribute("y2", pt.cOut.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+                if (cInActive) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cIn.x); l.setAttribute("y2", pt.cIn.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+                if (cOutActive) createHandle(gHandles, pt.cOut, 'control', i, index, 'cOut');
+                if (cInActive) createHandle(gHandles, pt.cIn, 'control', i, index, 'cIn');
+            });
+
+            if (pathData.closed && pts.length > 2) {
+                const first = pts[0]; const last = pts[pts.length - 1];
+                const isFlatClosing = (Math.hypot(last.cOut.x - last.p.x, last.cOut.y - last.p.y) < 1 && Math.hypot(first.cIn.x - first.p.x, first.cIn.y - first.p.y) < 1);
+                if (isFlatClosing) {
+                    const closingLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    closingLine.setAttribute("x1", last.p.x); closingLine.setAttribute("y1", last.p.y);
+                    closingLine.setAttribute("x2", first.p.x); closingLine.setAttribute("y2", first.p.y);
+                    closingLine.setAttribute("class", "handle-closing-line");
+                    closingLine.dataset.index = index;
+                    gLines.appendChild(closingLine);
+                }
+            }
+
+            UI.layerHandles.appendChild(gLines);
+            UI.layerHandles.appendChild(gHandles);
+
+            const gAnchors = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            gAnchors.setAttribute("class", "handle-group");
+            pts.forEach((pt, i) => { createHandle(gAnchors, pt.p, 'anchor', i, index); });
+            UI.layerHandles.appendChild(gAnchors);
+
+            const minX = Math.min(...pts.map(pt => pt.p.x));
+            const minY = Math.min(...pts.map(pt => pt.p.y));
+            const maxX = Math.max(...pts.map(pt => pt.p.x));
+            const maxY = Math.max(...pts.map(pt => pt.p.y));
+            
+            // --- MOVER GROUP (CROSS) WITH OUTLINE ---
+            const moverOffset = 25 / AppState.view.zoom; 
+            const moverGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            moverGroup.setAttribute("transform", `translate(${minX - moverOffset}, ${minY - moverOffset})`);
+            moverGroup.setAttribute("class", "path-mover-group");
+            const mSize = 10 / AppState.view.zoom; 
+            
+            // 1. Create Outline Lines (Black background)
+            const hLineOutline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLineOutline.setAttribute("x1", -mSize); hLineOutline.setAttribute("y1", 0); 
+            hLineOutline.setAttribute("x2", mSize); hLineOutline.setAttribute("y2", 0);
+            hLineOutline.setAttribute("class", "cross-line-outline");
+            
+            const vLineOutline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLineOutline.setAttribute("x1", 0); vLineOutline.setAttribute("y1", -mSize); 
+            vLineOutline.setAttribute("x2", 0); vLineOutline.setAttribute("y2", mSize);
+            vLineOutline.setAttribute("class", "cross-line-outline");
+
+            // 2. Create Main Lines (White foreground)
+            const hLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLine.setAttribute("x1", -mSize); hLine.setAttribute("y1", 0); 
+            hLine.setAttribute("x2", mSize); hLine.setAttribute("y2", 0);
+            hLine.setAttribute("class", "cross-line");
+            
+            const vLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLine.setAttribute("x1", 0); vLine.setAttribute("y1", -mSize); 
+            vLine.setAttribute("x2", 0); vLine.setAttribute("y2", mSize);
+            vLine.setAttribute("class", "cross-line");
+
+            const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            hitbox.setAttribute("x", -mSize); hitbox.setAttribute("y", -mSize);
+            hitbox.setAttribute("width", mSize*2); hitbox.setAttribute("height", mSize*2);
+            hitbox.setAttribute("class", "cross-hitbox");
+            
+            // 3. Append Outline first, then Main lines
+            moverGroup.appendChild(hLineOutline);
+            moverGroup.appendChild(vLineOutline);
+            moverGroup.appendChild(hLine); 
+            moverGroup.appendChild(vLine); 
+            moverGroup.appendChild(hitbox);
+            
+            moverGroup.addEventListener('mousedown', (e) => { e.stopPropagation(); startDraggingPath(e, index); });
+            UI.layerHandles.appendChild(moverGroup);
+
+            // --- ROTATION HANDLE ---
+            const rotX = minX - moverOffset + (40 / AppState.view.zoom);
+            const rotY = minY - moverOffset;
+            
+            // FIX: Only ensure pivot exists if undefined (fallback). 
+            // The primary reset now happens in toggleSelection.
+            if (pathData.rotationPivot === undefined) {
+                pathData.rotationPivot = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+            }
+            
+            const pivotLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            pivotLine.setAttribute("x1", rotX); pivotLine.setAttribute("y1", rotY);
+            pivotLine.setAttribute("x2", pathData.rotationPivot.x); pivotLine.setAttribute("y2", pathData.rotationPivot.y);
+            pivotLine.setAttribute("class", "rotation-pivot-indicator");
+            UI.layerHandles.appendChild(pivotLine);
+            
+            const pivotCenter = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            pivotCenter.setAttribute("cx", pathData.rotationPivot.x);
+            pivotCenter.setAttribute("cy", pathData.rotationPivot.y);
+            pivotCenter.setAttribute("r", 4 / AppState.view.zoom);
+            pivotCenter.setAttribute("class", "rotation-pivot-center");
+            UI.layerHandles.appendChild(pivotCenter);
+            
+            const rotGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            rotGroup.setAttribute("transform", `translate(${rotX}, ${rotY})`);
+            rotGroup.setAttribute("class", "rotation-handle-group");
+            rotGroup.setAttribute("id", `rot-handle-${index}`); 
+            rotGroup.dataset.pathIndex = index;
+            
+            const rSize = 8 / AppState.view.zoom;
+            
+            const rCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            rCircle.setAttribute("cx", 0); rCircle.setAttribute("cy", 0);
+            rCircle.setAttribute("r", rSize * 1.5);
+            rCircle.setAttribute("class", "rotation-circle");
+            
+            const rLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            rLine1.setAttribute("x1", -rSize); rLine1.setAttribute("y1", -rSize);
+            rLine1.setAttribute("x2", rSize); rLine1.setAttribute("y2", rSize);
+            rLine1.setAttribute("class", "rotation-x-line");
+            
+            const rLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            rLine2.setAttribute("x1", rSize); rLine2.setAttribute("y1", -rSize);
+            rLine2.setAttribute("x2", -rSize); rLine2.setAttribute("y2", rSize);
+            rLine2.setAttribute("class", "rotation-x-line");
+            
+            const rotHitbox = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            rotHitbox.setAttribute("cx", 0); rotHitbox.setAttribute("cy", 0);
+            rotHitbox.setAttribute("r", rSize * 2);
+            rotHitbox.setAttribute("class", "rotation-hitbox");
+            
+            rotGroup.appendChild(rCircle);
+            rotGroup.appendChild(rLine1);
+            rotGroup.appendChild(rLine2);
+            rotGroup.appendChild(rotHitbox);
+            
+            rotGroup.addEventListener('mousedown', (e) => { e.stopPropagation(); startRotatingPath(e, index); });
+            rotGroup.addEventListener('dblclick', (e) => { e.stopPropagation(); resetRotationPivot(index); });
+            UI.layerHandles.appendChild(rotGroup);
+        }
+
+        function updateSelectionVisuals() {
+            if (AppState.selectedPathIndices.length > 0) {
+                const idx = AppState.selectedPathIndices[0];
+                const pathData = AppState.paths[idx];
+                UI.widthSlider.value = pathData.width;
+                UI.widthVal.textContent = pathData.width + "px";
+                UI.strokeColor.value = pathData.strokeColor;
+                UI.fillColor.value = pathData.fillColor;
+                UI.strokeOpacity.value = pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1;
+                UI.fillOpacity.value = pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0;
+                UI.btnDelete.style.display = "block";
+                UI.btnClear.style.display = "none";
+                setStatus(`Selected ${AppState.selectedPathIndices.length} path(s). Zoom: ${(AppState.view.zoom * 100).toFixed(0)}%`);
+                updateCloseShapeUI();
+            } else {
+                UI.widthSlider.value = AppState.styles.width;
+                UI.widthVal.textContent = AppState.styles.width + "px";
+                UI.strokeColor.value = AppState.styles.strokeColor;
+                UI.fillColor.value = AppState.styles.fillColor;
+                UI.strokeOpacity.value = AppState.styles.strokeOpacity;
+                UI.fillOpacity.value = AppState.styles.fillOpacity;
+                UI.btnDelete.style.display = "none";
+                UI.btnClear.style.display = "block";
+                setStatus("Select Mode. <b>Right Click</b> or <b>2 Fingers</b> to Pan.");
+                updateCloseShapeUI();
+            }
+            renderSelectionHandles();
+        }
+
+        function clearHandles() { UI.layerHandles.innerHTML = ''; }
+
+        function renderSelectionHandles() {
+            clearHandles();
+            AppState.selectedPathIndices.forEach(index => renderHandlesForPath(index));
+        }
+
+        const HANDLE_SCREEN_SIZE = 8;
+        const CONTROL_SCREEN_RADIUS = 5;
+        const MIN_CANVAS_SIZE = 2;
+
+        function getHandleSize() { return 12 / AppState.view.zoom; }
+        function getControlRadius() { return 6 / AppState.view.zoom; }
+
+        function renderHandlesForPath(index) {
+            const pathData = AppState.paths[index];
+            const pts = pathData.points;
+            const gLines = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            const gHandles = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            gHandles.setAttribute("class", "handle-group");
+
+            const isControlActive = (cp, ap) => Math.hypot(cp.x - ap.x, cp.y - ap.y) > 0.5;
+
+            pts.forEach((pt, i) => {
+                const needsCOut = (i < pts.length - 1) || pathData.closed;
+                const needsCIn = (i > 0) || pathData.closed;
+
+                const cOutActive = needsCOut && isControlActive(pt.cOut, pt.p);
+                const cInActive = needsCIn && isControlActive(pt.cIn, pt.p);
+
+                if (cOutActive) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cOut.x); l.setAttribute("y2", pt.cOut.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+                if (cInActive) {
+                    const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    l.setAttribute("x1", pt.p.x); l.setAttribute("y1", pt.p.y);
+                    l.setAttribute("x2", pt.cIn.x); l.setAttribute("y2", pt.cIn.y);
+                    l.setAttribute("class", "handle-control-line");
+                    gLines.appendChild(l);
+                }
+                if (cOutActive) createHandle(gHandles, pt.cOut, 'control', i, index, 'cOut');
+                if (cInActive) createHandle(gHandles, pt.cIn, 'control', i, index, 'cIn');
+            });
+
+            if (pathData.closed && pts.length > 2) {
+                const first = pts[0]; const last = pts[pts.length - 1];
+                const isFlatClosing = (Math.hypot(last.cOut.x - last.p.x, last.cOut.y - last.p.y) < 1 && Math.hypot(first.cIn.x - first.p.x, first.cIn.y - first.p.y) < 1);
+                if (isFlatClosing) {
+                    const closingLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    closingLine.setAttribute("x1", last.p.x); closingLine.setAttribute("y1", last.p.y);
+                    closingLine.setAttribute("x2", first.p.x); closingLine.setAttribute("y2", first.p.y);
+                    closingLine.setAttribute("class", "handle-closing-line");
+                    closingLine.dataset.index = index;
+                    gLines.appendChild(closingLine);
+                }
+            }
+
+            UI.layerHandles.appendChild(gLines);
+            UI.layerHandles.appendChild(gHandles);
+
+            const gAnchors = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            gAnchors.setAttribute("class", "handle-group");
+            pts.forEach((pt, i) => { createHandle(gAnchors, pt.p, 'anchor', i, index); });
+            UI.layerHandles.appendChild(gAnchors);
+
+            const minX = Math.min(...pts.map(pt => pt.p.x));
+            const minY = Math.min(...pts.map(pt => pt.p.y));
+            const maxX = Math.max(...pts.map(pt => pt.p.x));
+            const maxY = Math.max(...pts.map(pt => pt.p.y));
+            
+            // --- MOVER GROUP (CROSS) WITH OUTLINE ---
+            const moverOffset = 25 / AppState.view.zoom; 
+            const moverGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            moverGroup.setAttribute("transform", `translate(${minX - moverOffset}, ${minY - moverOffset})`);
+            moverGroup.setAttribute("class", "path-mover-group");
+            const mSize = 10 / AppState.view.zoom; 
+            
+            // 1. Create Outline Lines (Black background)
+            const hLineOutline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLineOutline.setAttribute("x1", -mSize); hLineOutline.setAttribute("y1", 0); 
+            hLineOutline.setAttribute("x2", mSize); hLineOutline.setAttribute("y2", 0);
+            hLineOutline.setAttribute("class", "cross-line-outline");
+            
+            const vLineOutline = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLineOutline.setAttribute("x1", 0); vLineOutline.setAttribute("y1", -mSize); 
+            vLineOutline.setAttribute("x2", 0); vLineOutline.setAttribute("y2", mSize);
+            vLineOutline.setAttribute("class", "cross-line-outline");
+
+            // 2. Create Main Lines (White foreground)
+            const hLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            hLine.setAttribute("x1", -mSize); hLine.setAttribute("y1", 0); 
+            hLine.setAttribute("x2", mSize); hLine.setAttribute("y2", 0);
+            hLine.setAttribute("class", "cross-line");
+            
+            const vLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            vLine.setAttribute("x1", 0); vLine.setAttribute("y1", -mSize); 
+            vLine.setAttribute("x2", 0); vLine.setAttribute("y2", mSize);
+            vLine.setAttribute("class", "cross-line");
+
+            const hitbox = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+            hitbox.setAttribute("x", -mSize); hitbox.setAttribute("y", -mSize);
+            hitbox.setAttribute("width", mSize*2); hitbox.setAttribute("height", mSize*2);
+            hitbox.setAttribute("class", "cross-hitbox");
+            
+            // 3. Append Outline first, then Main lines
+            moverGroup.appendChild(hLineOutline);
+            moverGroup.appendChild(vLineOutline);
+            moverGroup.appendChild(hLine); 
+            moverGroup.appendChild(vLine); 
+            moverGroup.appendChild(hitbox);
+            
+            moverGroup.addEventListener('mousedown', (e) => { e.stopPropagation(); startDraggingPath(e, index); });
+            UI.layerHandles.appendChild(moverGroup);
+
+            // --- ROTATION HANDLE ---
+            const rotX = minX - moverOffset + (40 / AppState.view.zoom);
+            const rotY = minY - moverOffset;
+            
+            if (pathData.rotationPivot === undefined) {
+                pathData.rotationPivot = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+            }
+            
+            const pivotLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            pivotLine.setAttribute("x1", rotX); pivotLine.setAttribute("y1", rotY);
+            pivotLine.setAttribute("x2", pathData.rotationPivot.x); pivotLine.setAttribute("y2", pathData.rotationPivot.y);
+            pivotLine.setAttribute("class", "rotation-pivot-indicator");
+            UI.layerHandles.appendChild(pivotLine);
+            
+            const pivotCenter = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            pivotCenter.setAttribute("cx", pathData.rotationPivot.x);
+            pivotCenter.setAttribute("cy", pathData.rotationPivot.y);
+            pivotCenter.setAttribute("r", 4 / AppState.view.zoom);
+            pivotCenter.setAttribute("class", "rotation-pivot-center");
+            UI.layerHandles.appendChild(pivotCenter);
+            
+            const rotGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+            rotGroup.setAttribute("transform", `translate(${rotX}, ${rotY})`);
+            rotGroup.setAttribute("class", "rotation-handle-group");
+            rotGroup.setAttribute("id", `rot-handle-${index}`); 
+            rotGroup.dataset.pathIndex = index;
+            
+            const rSize = 8 / AppState.view.zoom;
+            
+            const rCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            rCircle.setAttribute("cx", 0); rCircle.setAttribute("cy", 0);
+            rCircle.setAttribute("r", rSize * 1.5);
+            rCircle.setAttribute("class", "rotation-circle");
+            
+            const rLine1 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            rLine1.setAttribute("x1", -rSize); rLine1.setAttribute("y1", -rSize);
+            rLine1.setAttribute("x2", rSize); rLine1.setAttribute("y2", rSize);
+            rLine1.setAttribute("class", "rotation-x-line");
+            
+            const rLine2 = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            rLine2.setAttribute("x1", rSize); rLine2.setAttribute("y1", -rSize);
+            rLine2.setAttribute("x2", -rSize); rLine2.setAttribute("y2", rSize);
+            rLine2.setAttribute("class", "rotation-x-line");
+            
+            const rotHitbox = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            rotHitbox.setAttribute("cx", 0); rotHitbox.setAttribute("cy", 0);
+            rotHitbox.setAttribute("r", rSize * 2);
+            rotHitbox.setAttribute("class", "rotation-hitbox");
+            
+            rotGroup.appendChild(rCircle);
+            rotGroup.appendChild(rLine1);
+            rotGroup.appendChild(rLine2);
+            rotGroup.appendChild(rotHitbox);
+            
+            rotGroup.addEventListener('mousedown', (e) => { e.stopPropagation(); startRotatingPath(e, index); });
+            rotGroup.addEventListener('dblclick', (e) => { e.stopPropagation(); resetRotationPivot(index); });
+            UI.layerHandles.appendChild(rotGroup);
+        }
+
+        function getShapeCenter(pathData) {
+            const pts = pathData.points;
+            let sumX = 0, sumY = 0;
+            pts.forEach(pt => { sumX += pt.p.x; sumY += pt.p.y; });
+            return { x: sumX / pts.length, y: sumY / pts.length };
+        }
+
+        function resetRotationPivot(pathIndex) {
+            const pathData = AppState.paths[pathIndex];
+            const pts = pathData.points;
+            const minX = Math.min(...pts.map(pt => pt.p.x));
+            const minY = Math.min(...pts.map(pt => pt.p.y));
+            const maxX = Math.max(...pts.map(pt => pt.p.x));
+            const maxY = Math.max(...pts.map(pt => pt.p.y));
+            pathData.rotationPivot = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+            renderSelectionHandles();
+            setStatus("Rotation pivot reset to center.");
+        }
+
+        function startRotatingPath(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.preventDefault();
+            e.stopPropagation();
+            
+            // Ensure the path is selected
+            if (!AppState.selectedPathIndices.includes(pathIndex)) {
+                toggleSelection(pathIndex, false);
+            }
+
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            const pathData = AppState.paths[pathIndex];
+            
+            // Initialize pivot if missing
+            if (!pathData.rotationPivot) {
+                 const pts = pathData.points;
+                 const minX = Math.min(...pts.map(p => p.p.x));
+                 const minY = Math.min(...pts.map(p => p.p.y));
+                 const maxX = Math.max(...pts.map(p => p.p.x));
+                 const maxY = Math.max(...pts.map(p => p.p.y));
+                 pathData.rotationPivot = { x: (minX + maxX) / 2, y: (minY + maxY) / 2 };
+            }
+
+            // LOGIC: Check Ctrl state AT START.
+            // If Ctrl is held, we LOCK into "Moving Pivot" mode.
+            if (e.ctrlKey || e.metaKey) {
+                AppState.isMovingPivot = true;
+                AppState.isRotating = false;
+                AppState.rotatingPathIndex = pathIndex;
+                
+                saveState(); 
+                setStatus("Moving Rotation Pivot...");
+            } 
+            else {
+                // Otherwise, we LOCK into "Rotating" mode.
+                AppState.isRotating = true;
+                AppState.isMovingPivot = false;
+                AppState.rotatingPathIndex = pathIndex;
+                
+                const pivot = pathData.rotationPivot;
+                
+                AppState.rotationStartAngle = Math.atan2(pt.y - pivot.y, pt.x - pivot.x);
+                AppState.rotationPivot = pivot;
+                AppState.rotationApplied = 0;
+                
+                clearHandles();
+
+                // Create Ghost
+                const pathEl = UI.layerPaths.querySelector(`path[data-index="${pathIndex}"]`);
+                if (pathEl) {
+                    const ghost = pathEl.cloneNode(true);
+                    ghost.removeAttribute('data-index');
+                    ghost.classList.add('rotation-ghost');
+                    UI.layerPathsActive.appendChild(ghost);
+                    AppState.rotationGhostElement = ghost;
+                }
+                
+                // Store handle vector
+                const handleEl = document.getElementById(`rot-handle-${pathIndex}`);
+                if (handleEl) {
+                    const transform = handleEl.getAttribute('transform');
+                    const match = transform.match(/translate\(([^,]+),\s*([^)]+)\)/);
+                    if (match) {
+                        const hx = parseFloat(match[1]);
+                        const hy = parseFloat(match[2]);
+                        AppState.rotationHandleVector = { x: hx - pivot.x, y: hy - pivot.y };
+                    }
+                }
+                
+                saveState();
+                setStatus("Rotating... (Hold Ctrl to snap to 5°)");
+            }
+        };
+
+        function processRotation(e, x, y) {
+            const pathIndex = AppState.rotatingPathIndex;
+            const pathData = AppState.paths[pathIndex];
+            const pivot = AppState.rotationPivot;
+            
+            // 1. Calculate the absolute angle from the start of the drag
+            const currentAngle = Math.atan2(y - pivot.y, x - pivot.x);
+            let totalAngle = currentAngle - AppState.rotationStartAngle;
+            
+            // 2. Snap logic
+            if (e.ctrlKey || e.metaKey) {
+                const snapStep = 5 * Math.PI / 180; // 5 degrees in radians
+                totalAngle = Math.round(totalAngle / snapStep) * snapStep;
+            }
+            
+            // 3. Determine how much NEW rotation to apply in this frame
+            const deltaToApply = totalAngle - AppState.rotationApplied;
+            
+            if (Math.abs(deltaToApply) > 0.0001) {
+                const cos = Math.cos(deltaToApply);
+                const sin = Math.sin(deltaToApply);
+                
+                pathData.points.forEach(pt => {
+                    // Rotate anchor point
+                    const dx = pt.p.x - pivot.x;
+                    const dy = pt.p.y - pivot.y;
+                    pt.p.x = pivot.x + dx * cos - dy * sin;
+                    pt.p.y = pivot.y + dx * sin + dy * cos;
+                    
+                    // Rotate control points
+                    const cInDx = pt.cIn.x - pivot.x;
+                    const cInDy = pt.cIn.y - pivot.y;
+                    pt.cIn.x = pivot.x + cInDx * cos - cInDy * sin;
+                    pt.cIn.y = pivot.y + cInDx * sin + cInDy * cos;
+                    
+                    const cOutDx = pt.cOut.x - pivot.x;
+                    const cOutDy = pt.cOut.y - pivot.y;
+                    pt.cOut.x = pivot.x + cOutDx * cos - cOutDy * sin;
+                    pt.cOut.y = pivot.y + cOutDx * sin + cOutDy * cos;
+                });
+                
+                // Update the accumulator
+                AppState.rotationApplied = totalAngle;
+                
+                // Update visual rotation handle position
+                // We rotate the INITIAL vector by the TOTAL angle to prevent drift
+                const handleEl = UI.layerHandles.querySelector(`.rotation-handle-group[data-path-index="${pathIndex}"]`);
+                if (handleEl && AppState.rotationHandleVector) {
+                    const vx = AppState.rotationHandleVector.x;
+                    const vy = AppState.rotationHandleVector.y;
+                    const newHx = pivot.x + vx * Math.cos(totalAngle) - vy * Math.sin(totalAngle);
+                    const newHy = pivot.y + vx * Math.sin(totalAngle) + vy * Math.cos(totalAngle);
+                    handleEl.setAttribute('transform', `translate(${newHx}, ${newHy})`);
+                }
+                
+                updatePathD(pathIndex);
+            }
+        }
+        
+        function stopRotation() {
+            if (AppState.isRotating) {
+                AppState.isRotating = false;
+                AppState.rotatingPathIndex = null;
+                
+                // 1. Remove Ghost Copy
+                if (AppState.rotationGhostElement) {
+                    AppState.rotationGhostElement.remove();
+                    AppState.rotationGhostElement = null;
+                }
+                
+                // 2. Restore Handles
+                renderSelectionHandles(); 
+            }
+        }
+
+        function createHandle(container, point, type, index, pathIndex, subType = '') {
+            const el = document.createElementNS("http://www.w3.org/2000/svg", type === 'anchor' ? 'rect' : 'circle');
+            
+            const size = type === 'anchor' ? getHandleSize() : getControlRadius() * 2;
+            const radius = getControlRadius();
+            
+            if (type === 'anchor') {
+                el.setAttribute("x", point.x - size/2); el.setAttribute("y", point.y - size/2);
+                el.setAttribute("width", size); el.setAttribute("height", size);
+                el.setAttribute("class", "handle-node");
+                
+                // Double-click to delete
+                el.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); deletePoint(index, pathIndex); });
+
+                // Updated Mousedown: Check for Ctrl/Cmd to delete, otherwise drag
+                el.addEventListener('mousedown', (e) => {
+                    if (e.ctrlKey || e.metaKey) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        deletePoint(index, pathIndex);
+                        return; // Stop drag logic
+                    }
+                    e.stopPropagation();
+                    startDraggingHandle(e, index, subType, pathIndex);
+                });
+
+            } else {
+                el.setAttribute("cx", point.x); el.setAttribute("cy", point.y); el.setAttribute("r", radius);
+                el.setAttribute("class", "handle-control");
+                
+                // Standard drag for control points
+                el.addEventListener('mousedown', (e) => { e.stopPropagation(); startDraggingHandle(e, index, subType, pathIndex); });
+            }
+            container.appendChild(el);
+        }
+        
+        function handlePathDoubleClick(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            const pathData = AppState.paths[pathIndex];
+            const pts = pathData.points;
+            if (pts.length < 2) return;
+
+            let minDist = Infinity; let bestIndex = -1; let bestT = 0.5;
+
+            for (let i = 0; i < pts.length - 1; i++) {
+                const p0 = pts[i]; const p1 = pts[i+1];
+                const { t, dist } = getTFromPoint(p0.p, p0.cOut, p1.cIn, p1.p, pt);
+                if (dist < minDist) { minDist = dist; bestIndex = i; bestT = t; }
+            }
+            
+            if (pathData.closed) {
+                const p0 = pts[pts.length-1]; const p1 = pts[0];
+                const { t, dist } = getTFromPoint(p0.p, p0.cOut, p1.cIn, p1.p, pt);
+                if (dist < minDist) { minDist = dist; bestIndex = pts.length - 1; bestT = t; }
+            }
+
+            if (minDist < 20 && bestIndex !== -1) {
+                saveState();
+                const p0 = pts[bestIndex];
+                const p1 = pts[(bestIndex + 1) % pts.length];
+                const { leftNode, splitNode, rightNode } = splitBezierCurve(p0.p, p0.cOut, p1.cIn, p1.p, bestT);
+                
+                pts[bestIndex].cOut = leftNode.cOut;
+                
+                if (bestIndex === pts.length - 1) {
+                     pts[0].cIn = rightNode.cIn;
+                     pts.push(splitNode);
+                } else {
+                    pts[bestIndex+1].cIn = rightNode.cIn;
+                    pts.splice(bestIndex + 1, 0, splitNode);
+                }
+                
+                updatePathD(pathIndex);
+                renderSelectionHandles();
+            }
+        }
+
+        function deletePoint(index, pathIndex) {
+            const pathData = AppState.paths[pathIndex];
+            if (!pathData || pathData.points.length <= 2) return;
+            saveState();
+
+            const pts = pathData.points;
+            const n = pts.length;
+            const closed = pathData.closed;
+
+            // Identify neighbors considering closed paths
+            const prevIndex = index > 0 ? index - 1 : (closed ? n - 1 : -1);
+            const nextIndex = index < n - 1 ? index + 1 : (closed ? 0 : -1);
+
+            const deletedPt = pts[index];
+            const prevPt = prevIndex !== -1 ? pts[prevIndex] : null;
+            const nextPt = nextIndex !== -1 ? pts[nextIndex] : null;
+
+            if (prevPt && nextPt) {
+                // We are removing a point between two others.
+                // We need to update the handles of the neighbors so they are extended ("away")
+                // and not collapsed ("under" the anchors).
+
+                const anchor = deletedPt.p;
+                const pPrev = prevPt.p;
+                const pNext = nextPt.p;
+
+                // Vector from Previous Anchor to Deleted Anchor
+                const vIn = { x: anchor.x - pPrev.x, y: anchor.y - pPrev.y };
+                // Vector from Deleted Anchor to Next Anchor
+                const vOut = { x: pNext.x - anchor.x, y: pNext.y - anchor.y };
+
+                const lenIn = Math.hypot(vIn.x, vIn.y);
+                const lenOut = Math.hypot(vOut.x, vOut.y);
+
+                // Calculate the bridge vector directly connecting the neighbors (Prev -> Next)
+                const vBridge = { x: pNext.x - pPrev.x, y: pNext.y - pPrev.y };
+                const lenBridge = Math.hypot(vBridge.x, vBridge.y);
+
+                // Determine the primary direction for the new handles.
+                // We try to use the average of the segment directions (preserving curve tangent).
+                // If the corner is sharp (vectors cancel out), we use the bridge vector (straight line).
+                let dirX = vIn.x + vOut.x;
+                let dirY = vIn.y + vOut.y;
+                let dirLen = Math.hypot(dirX, dirY);
+
+                // Threshold to detect if vectors cancel out (sharp corner)
+                // If they cancel out, dirLen will be near 0.
+                if (dirLen < 0.01) {
+                    // Use bridge vector direction for a smooth straight connection
+                    if (lenBridge > 0) {
+                        dirX = vBridge.x;
+                        dirY = vBridge.y;
+                        dirLen = lenBridge;
+                    }
+                }
+
+                // Normalize direction
+                if (dirLen > 0) {
+                    dirX /= dirLen;
+                    dirY /= dirLen;
+                }
+
+                // Scale handles. 
+                // We want them "away" from the anchors, not collapsed.
+                // Using 1/3 of the relevant segment length is a standard heuristic for bezier handles.
+                // For the bridge case, we split the distance.
+                
+                const scaleOut = lenIn > 0 ? lenIn / 3 : (lenBridge > 0 ? lenBridge / 6 : 0);
+                const scaleIn = lenOut > 0 ? lenOut / 3 : (lenBridge > 0 ? lenBridge / 6 : 0);
+
+                // Update Previous Point's Outgoing Handle
+                // Points forward along the calculated direction.
+                prevPt.cOut = {
+                    x: pPrev.x + dirX * scaleOut,
+                    y: pPrev.y + dirY * scaleOut
+                };
+
+                // Update Next Point's Incoming Handle
+                // Points backward along the calculated direction.
+                nextPt.cIn = {
+                    x: pNext.x - dirX * scaleIn,
+                    y: pNext.y - dirY * scaleIn
+                };
+
+            } else if (prevPt) {
+                // Open path end: reset outgoing handle to anchor
+                prevPt.cOut = { ...prevPt.p };
+            } else if (nextPt) {
+                // Open path start: reset incoming handle to anchor
+                nextPt.cIn = { ...nextPt.p };
+            }
+
+            // Remove the point
+            pathData.points.splice(index, 1);
+
+            updatePathD(pathIndex);
+            renderSelectionHandles();
+        }
+
+        function startDraggingHandle(e, index, subType, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.preventDefault();
+            e.stopPropagation();
+            AppState.isDraggingHandle = true;
+            AppState.activeHandleIndex = { index, subType, pathIndex };
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+            if (subType === '') {
+                AppState.snapTarget = null;
+            } else {
+                const pathData = AppState.paths[pathIndex];
+                const anchor = pathData.points[index].p;
+                const controlPoint = subType === 'cOut' ? pathData.points[index].cOut : pathData.points[index].cIn;
+                AppState.dragStartControlLength = Math.hypot(controlPoint.x - anchor.x, controlPoint.y - anchor.y);
+            }
+        }
+
+        function startDraggingPath(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.preventDefault();
+            if (!AppState.selectedPathIndices.includes(pathIndex)) toggleSelection(pathIndex, e.shiftKey);
+            AppState.isDraggingPath = true;
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            AppState.dragStartMouse = { x: pt.x, y: pt.y };
+        }
+
+        function startDraggingSegment(e, pathIndex) {
+            if (AppState.mode !== 'select') return;
+            e.preventDefault(); e.stopPropagation();
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            const pathData = AppState.paths[pathIndex];
+            const { index, dist } = getNearestSegmentIndex(pathData, pt);
+            if (index !== -1 && dist < 20) {
+                toggleSelection(pathIndex, e.shiftKey);
+                AppState.isDraggingSegment = true;
+                AppState.activeSegmentIndex = index;
+                AppState.activePathIndex = pathIndex; 
+                AppState.dragStartMouse = { x: pt.x, y: pt.y };
+            } else {
+                toggleSelection(pathIndex, e.shiftKey);
+            }
+        }
+
+        // --- SNAP LOGIC ---
+        
+        function getSnapThresholdInWorldCoords() {
+            const zoom = AppState.view.zoom;
+            const base = AppState.styles.baseSnapThreshold;
+            
+            if (zoom < 1) {
+                const visualThreshold = base / zoom;
+                const worldBuffer = 5; 
+                return visualThreshold + worldBuffer;
+            } else {
+                return base/zoom;
+            }
+        }
+
+        function findSnapTarget(x, y, currentPathIdx, currentPtIdx, threshold) {
+            let bestTarget = null; let minDist = threshold;
+
+            AppState.paths.forEach((path, pIdx) => {
+                path.points.forEach((pt, i) => {
+                    if (pIdx === currentPathIdx && Math.abs(i - currentPtIdx) <= 1) return;
+                    const d = Math.hypot(pt.p.x - x, pt.p.y - y);
+                    if (d < minDist) { minDist = d; bestTarget = { type: 'anchor', x: pt.p.x, y: pt.p.y, pathIdx: pIdx, ptIdx: i }; }
+                });
+            });
+
+            if (!bestTarget) {
+                AppState.paths.forEach((path, pIdx) => {
+                    for (let i = 0; i < path.points.length - 1; i++) {
+                        if (pIdx === currentPathIdx && Math.abs(i - currentPtIdx) <= 1) continue;
+                        const p0 = path.points[i]; const p1 = path.points[i+1];
+                        const minX = Math.min(p0.p.x, p1.p.x) - threshold; const maxX = Math.max(p0.p.x, p1.p.x) + threshold;
+                        const minY = Math.min(p0.p.y, p1.p.y) - threshold; const maxY = Math.max(p0.p.y, p1.p.y) + threshold;
+                        if (x < minX || x > maxX || y < minY || y > maxY) continue;
+                        const { t, dist } = getTFromPoint(p0.p, p0.cOut, p1.cIn, p1.p, {x, y});
+                        if (dist < minDist) {
+                            minDist = dist;
+                            const b = cubicBezier(p0.p, p0.cOut, p1.cIn, p1.p, t);
+                            bestTarget = { type: 'segment', x: b.x, y: b.y, pathIdx: pIdx, segIdx: i, t: t };
+                        }
+                    }
+                });
+            }
+            return bestTarget;
+        }
+
+        function processDrag(e, x, y) {
+            // 1. Handle Moving Pivot (Locked at start)
+            if (AppState.isMovingPivot) {
+                const pathData = AppState.paths[AppState.rotatingPathIndex];
+                if (!pathData) return;
+                
+                // Update internal data
+                pathData.rotationPivot = { x: x, y: y };
+                
+                // UPDATE VISUALS LIVE
+                // Move the X handle to the mouse position
+                const handleEl = document.getElementById(`rot-handle-${AppState.rotatingPathIndex}`);
+                if (handleEl) {
+                    handleEl.setAttribute('transform', `translate(${x}, ${y})`);
+                }
+                
+                // Update the center dot position
+                const layer = UI.layerHandles;
+                const oldCenter = layer.querySelector('.rotation-pivot-center');
+                if (oldCenter) oldCenter.remove();
+                
+                const pivotCenter = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+                pivotCenter.setAttribute("cx", x);
+                pivotCenter.setAttribute("cy", y);
+                pivotCenter.setAttribute("r", 4 / AppState.view.zoom);
+                pivotCenter.setAttribute("class", "rotation-pivot-center");
+                layer.appendChild(pivotCenter);
+                
+                return;
+            }
+
+            // 2. Handle Rotation
+            if (AppState.isRotating) {
+                processRotation(e, x, y);
+                return;
+            }
+            
+            // 3. Handle standard dragging (Handles, Path, Segment)
+            if (AppState.isDraggingHandle) {
+                const { index, subType, pathIndex } = AppState.activeHandleIndex;
+                const pathData = AppState.paths[pathIndex];
+                const pointData = pathData.points[index];
+                let targetPoint = pointData.p;
+                if (subType === 'cOut') targetPoint = pointData.cOut;
+                if (subType === 'cIn') targetPoint = pointData.cIn;
+
+                const dx = x - AppState.dragStartMouse.x; const dy = y - AppState.dragStartMouse.y;
+                let nextX = targetPoint.x + dx; let nextY = targetPoint.y + dy;
+
+                if (subType === '' && AppState.snapEnabled) {
+                    const snapThresholdWorld = getSnapThresholdInWorldCoords();
+                    const snap = findSnapTarget(nextX, nextY, pathIndex, index, snapThresholdWorld);
+                    
+                    if (snap) {
+                        const mouseDistToTarget = Math.hypot(x - snap.x, y - snap.y);
+                        if (mouseDistToTarget <= snapThresholdWorld) {
+                            nextX = snap.x; nextY = snap.y;
+                            AppState.isSnapping = true; AppState.snapTarget = snap;
+                            UI.layerSnap.style.display = 'block';
+                            const ringRadius = snapThresholdWorld;
+                            const centerRadius = 5 / AppState.view.zoom;
+                            UI.snapRing.setAttribute('cx', nextX); UI.snapRing.setAttribute('cy', nextY);
+                            UI.snapRing.setAttribute('r', ringRadius);
+                            UI.snapCenter.setAttribute('cx', nextX); UI.snapCenter.setAttribute('cy', nextY);
+                            UI.snapCenter.setAttribute('r', centerRadius);
+                        } else {
+                            AppState.isSnapping = false; AppState.snapTarget = null;
+                            UI.layerSnap.style.display = 'none';
+                        }
+                    } else {
+                        AppState.isSnapping = false; AppState.snapTarget = null;
+                        UI.layerSnap.style.display = 'none';
+                    }
+                    const finalDx = nextX - pointData.p.x;
+                    const finalDy = nextY - pointData.p.y;
+                    pointData.cIn.x += finalDx;
+                    pointData.cIn.y += finalDy;
+                    pointData.cOut.x += finalDx;
+                    pointData.cOut.y += finalDy;
+                } else {
+                    UI.layerSnap.style.display = 'none';
+                }
+                targetPoint.x = nextX; targetPoint.y = nextY;
+                AppState.dragStartMouse = { x, y }; 
+                updatePathD(pathIndex);
+                renderSelectionHandles(); 
+            } else if (AppState.isDraggingPath) {
+                UI.layerSnap.style.display = 'none';
+                const dx = x - AppState.dragStartMouse.x; 
+                const dy = y - AppState.dragStartMouse.y;
+                
+                AppState.selectedPathIndices.forEach(idx => {
+                    const pathData = AppState.paths[idx];
+                    // Update Data Model
+                    pathData.points.forEach(pt => {
+                        pt.p.x += dx; pt.p.y += dy; 
+                        pt.cIn.x += dx; pt.cIn.y += dy; 
+                        pt.cOut.x += dx; pt.cOut.y += dy;
+                    });
+                    if (pathData.rotationPivot) {
+                        pathData.rotationPivot.x += dx;
+                        pathData.rotationPivot.y += dy;
+                    }
+                    
+                    // FIX: Update DOM directly for smoother visual sync
+                    // This ensures the path element knows it moved immediately
+                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${idx}"]`);
+                    if(pathEl) updatePathD(idx); // Update geometry immediately
+                    
+                });
+                AppState.dragStartMouse = { x, y }; 
+                renderSelectionHandles(); // This updates handles
+            } else if (AppState.isDraggingSegment) {
+                UI.layerSnap.style.display = 'none';
+                const dx = x - AppState.dragStartMouse.x; const dy = y - AppState.dragStartMouse.y;
+                const pathData = AppState.paths[AppState.activePathIndex];
+                const segIndex = AppState.activeSegmentIndex;
+                let idx1, idx2;
+                if (segIndex === pathData.points.length - 1) { idx1 = segIndex; idx2 = 0; }
+                else { idx1 = segIndex; idx2 = segIndex + 1; }
+                pathData.points[idx1].cOut.x += dx; pathData.points[idx1].cOut.y += dy;
+                pathData.points[idx2].cIn.x += dx; pathData.points[idx2].cIn.y += dy;
+                AppState.dragStartMouse = { x, y };
+                updatePathD(AppState.activePathIndex);
+                renderSelectionHandles();
+            }
+        }
+
+        function stopDrag() {
+            UI.layerSnap.style.display = 'none';
+            
+            // Handle Moving Pivot Cleanup
+            if (AppState.isMovingPivot) {
+                AppState.isMovingPivot = false;
+                AppState.rotatingPathIndex = null;
+                
+                // Re-render handles so the 'X' snaps back to its calculated offset position
+                // while the center dot remains at the new pivot location.
+                renderSelectionHandles();
+                
+                setStatus("Rotation pivot placed.");
+                return;
+            }
+
+            if (AppState.isRotating) {
+                stopRotation();
+                saveState();
+                return;
+            }
+            if (AppState.isDraggingHandle || AppState.isDraggingPath || AppState.isDraggingSegment) {
+                AppState.selectedPathIndices.forEach(idx => updatePathD(idx));
+                if (AppState.isDraggingHandle && AppState.snapTarget) {
+                    const { index, subType, pathIndex } = AppState.activeHandleIndex;
+                    const snap = AppState.snapTarget;
+                    const pathData = AppState.paths[pathIndex];
+                    if (subType === '') { 
+                        saveState(); 
+                        if (snap.type === 'anchor' && snap.pathIdx === pathIndex) {
+                            const pts = pathData.points;
+                            const isStart = index === 0; const isEnd = index === pts.length - 1;
+                            const targetIsStart = snap.ptIdx === 0; const targetIsEnd = snap.ptIdx === pts.length - 1;
+                            if (!pathData.closed && ((isStart && targetIsEnd) || (isEnd && targetIsStart))) {
+                                const first = pts[0];
+                                const last = pts[pts.length - 1];
+                                if (isStart) { first.p.x = last.p.x; first.p.y = last.p.y; }
+                                else { last.p.x = first.p.x; last.p.y = first.p.y; }
+                                const handleLen = 50;
+                                const inAngle = Math.atan2(last.cIn.y - last.p.y, last.cIn.x - last.p.x);
+                                last.cOut = { x: last.p.x - Math.cos(inAngle) * handleLen, y: last.p.y - Math.sin(inAngle) * handleLen };
+                                const outAngle = Math.atan2(first.cOut.y - first.p.y, first.cOut.x - first.p.x);
+                                first.cIn = { x: first.p.x - Math.cos(outAngle) * handleLen, y: first.p.y - Math.sin(outAngle) * handleLen };
+                                pathData.closed = true;
+                                setStatus("Shape closed.");
+                                updateCloseShapeUI();
+                            }
+                        }
+                        if (snap.type === 'segment') {
+                            const targetPath = AppState.paths[snap.pathIdx];
+                            const p0 = targetPath.points[snap.segIdx]; const p1 = targetPath.points[snap.segIdx+1];
+                            const { leftNode, splitNode, rightNode } = splitBezierCurve(p0.p, p0.cOut, p1.cIn, p1.p, snap.t);
+                            if (snap.pathIdx === pathIndex) {
+                                if (snap.segIdx < index) index++; 
+                                targetPath.points[snap.segIdx].cOut = leftNode.cOut; targetPath.points[snap.segIdx+1].cIn = rightNode.cIn;
+                                targetPath.points.splice(snap.segIdx + 1, 0, splitNode);
+                                pathData.points[index].p.x = splitNode.p.x; pathData.points[index].p.y = splitNode.p.y;
+                                pathData.points[index].cIn.x = splitNode.cIn.x; pathData.points[index].cIn.y = splitNode.cIn.y;
+                            } else {
+                                targetPath.points[snap.segIdx].cOut = leftNode.cOut; targetPath.points[snap.segIdx+1].cIn = rightNode.cIn;
+                                targetPath.points.splice(snap.segIdx + 1, 0, splitNode);
+                                pathData.points[index].p.x = splitNode.p.x; pathData.points[index].p.y = splitNode.p.y;
+                                pathData.points[index].cIn.x = splitNode.cIn.x; pathData.points[index].cIn.y = splitNode.cIn.y;
+                            }
+                        }
+                    }
+                }
+                AppState.isDraggingHandle = false; AppState.isDraggingPath = false;
+                AppState.isDraggingSegment = false; AppState.activeHandleIndex = null;
+                AppState.activeSegmentIndex = null; AppState.activePathIndex = null;
+                AppState.isSnapping = false; AppState.snapTarget = null;
+        
+                saveState();
+            }
+        }
+
+        // --- COLOR PICKER LOGIC ---
+        function activateColorPicker() {
+            if (!AppState.referenceImage) { setStatus("No reference image loaded."); return; }
+            AppState.colorPickerActive = true;
+            UI.btnColorPicker.classList.add('active');
+            UI.strokeColor.classList.add('color-input-highlight');
+            UI.fillColor.classList.add('color-input-highlight');
+            AppState.selectedColorInput = null;
+            setStatus("Color picker active.");
+        }
+
+        function deactivateColorPicker() {
+            AppState.colorPickerActive = false;
+            UI.btnColorPicker.classList.remove('active');
+            UI.strokeColor.classList.remove('color-input-highlight', 'color-input-selected');
+            UI.fillColor.classList.remove('color-input-highlight', 'color-input-selected');
+            AppState.selectedColorInput = null;
+            setStatus("Color picker deactivated.");
+        }
+
+        function selectColorInput(input) {
+            if (!AppState.colorPickerActive) return;
+            if (AppState.selectedColorInput) AppState.selectedColorInput.classList.remove('color-input-selected');
+            AppState.selectedColorInput = input;
+            input.classList.add('color-input-selected');
+            setStatus(`Selected ${input.id === 'stroke-color' ? 'stroke' : 'fill'} color.`);
+        }
+
+        function pickColorFromReference(clientX, clientY) {
+            if (!AppState.colorPickerActive || !AppState.selectedColorInput || !AppState.referenceImage) return;
+            const img = AppState.referenceImage;
+            const tempCanvas = document.createElement('canvas');
+            const ctx = tempCanvas.getContext('2d');
+            tempCanvas.width = img.width; tempCanvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            const bgRect = UI.bgLayer.getBoundingClientRect();
+            const relX = clientX - bgRect.left;
+            const relY = clientY - bgRect.top;
+            const imgAspect = img.width / img.height;
+            const displayAspect = bgRect.width / bgRect.height;
+            let displayWidth, displayHeight, offsetX, offsetY;
+            if (imgAspect > displayAspect) { displayWidth = bgRect.width; displayHeight = bgRect.width / imgAspect; offsetX = 0; offsetY = (bgRect.height - displayHeight) / 2; }
+            else { displayHeight = bgRect.height; displayWidth = bgRect.height * imgAspect; offsetX = (bgRect.width - displayWidth) / 2; offsetY = 0; }
+            const imageX = Math.floor((relX - offsetX) * (img.width / displayWidth));
+            const imageY = Math.floor((relY - offsetY) * (img.height / displayHeight));
+            if (imageX >= 0 && imageX < img.width && imageY >= 0 && imageY < img.height) {
+                const pixelData = ctx.getImageData(imageX, imageY, 1, 1).data;
+                const hexColor = '#' + ((1 << 24) + (pixelData[0] << 16) + (pixelData[1] << 8) + pixelData[2]).toString(16).slice(1);
+                AppState.selectedColorInput.value = hexColor;
+                if (AppState.selectedColorInput.id === 'stroke-color') updateStyleProperty('strokeColor', hexColor);
+                else updateStyleProperty('fillColor', hexColor);
+                deactivateColorPicker();
+                setStatus(`Color ${hexColor} picked.`);
+            }
+        }
+
+        // --- EVENT LISTENERS ---
+        UI.btnDraw.addEventListener('click', () => setMode('draw'));
+        UI.btnSelect.addEventListener('click', () => setMode('select'));
+        UI.btnCloseToolbar.addEventListener('click', toggleToolbar);
+        UI.fab.addEventListener('click', () => {
+            const nextMode = AppState.mode === 'draw' ? 'select' : 'draw';
+            setMode(nextMode);
+        });
+        
+        UI.btnSnap.addEventListener('click', () => {
+            AppState.snapEnabled = !AppState.snapEnabled;
+            UI.btnSnap.classList.toggle('active', AppState.snapEnabled);
+            UI.btnSnap.classList.toggle('pressed', AppState.snapEnabled);
+            setStatus(AppState.snapEnabled ? "Snap enabled" : "Snap disabled");
+        });
+        
+        UI.btnColorPicker.addEventListener('click', () => { AppState.colorPickerActive ? deactivateColorPicker() : activateColorPicker(); });
+        UI.strokeColor.addEventListener('mouseenter', () => selectColorInput(UI.strokeColor));
+        UI.fillColor.addEventListener('mouseenter', () => selectColorInput(UI.fillColor));
+        UI.strokeColor.addEventListener('click', () => selectColorInput(UI.strokeColor));
+        UI.fillColor.addEventListener('click', () => selectColorInput(UI.fillColor));
+        
+        UI.btnHelp.addEventListener('click', (e) => { e.stopPropagation(); UI.helpPanel.classList.add('visible'); });
+        UI.btnUndo.addEventListener('click', (e) => { e.stopPropagation(); undo(); }); // ADDED
+        UI.btnRedo.addEventListener('click', (e) => { e.stopPropagation(); redo(); }); // ADDED
+        UI.closeHelp.addEventListener('click', (e) => { e.stopPropagation(); UI.helpPanel.classList.remove('visible'); });
+        document.addEventListener('click', (e) => { if (UI.helpPanel.classList.contains('visible') && !UI.helpPanel.contains(e.target) && !UI.btnHelp.contains(e.target)) UI.helpPanel.classList.remove('visible'); });
+        
+        document.addEventListener('click', (e) => { if (UI.helpPanel.classList.contains('visible') && !UI.helpPanel.contains(e.target) && !UI.btnHelp.contains(e.target)) UI.helpPanel.classList.remove('visible'); });
+
+        UI.btnZoomUI.addEventListener('click', () => {
+            const isVisible = UI.zoomControls.style.display === 'flex';
+            UI.zoomControls.style.display = isVisible ? 'none' : 'flex';
+            if (!isVisible) { UI.zoomSlider.value = AppState.view.zoom; UI.zoomVal.textContent = Math.round(AppState.view.zoom * 100) + '%'; setStatus("Use slider to zoom."); }
+        });
+
+        UI.zoomSlider.addEventListener('input', (e) => { const val = e.target.value; UI.zoomVal.textContent = Math.round(val * 100) + '%'; zoomCentered(val); });
+
+        UI.btnImport.addEventListener('click', () => UI.fileInput.click());
+        UI.fileInput.addEventListener('change', (e) => { if (e.target.files.length > 0) { handleFiles(e.target.files); UI.fileInput.value = ''; } });
+        UI.btnClearRef.addEventListener('click', clearBackground);
+
+      UI.btnTraceColor.addEventListener('click', () => {
+           if (!AppState.referenceImage) {
+               setStatus("Import a reference image first.");
+               return;
+           }
+           setMode('trace');
+           setStatus("Trace Mode: Click on the reference image to trace a color region.");
+       });
+
+        UI.btnCloseShape.addEventListener('click', () => {
+            saveState();
+            if (AppState.selectedPathIndices.length >= 2) {
+                // Sort indices in ascending order to process them correctly
+                const sortedIndices = [...AppState.selectedPathIndices].sort((a, b) => a - b);
+                
+                // Start with the first path as our base
+                let basePathIndex = sortedIndices[0];
+                const basePath = AppState.paths[basePathIndex];
+                
+                // Merge each additional path one by one
+                for (let i = 1; i < sortedIndices.length; i++) {
+                    const pathToMergeIndex = sortedIndices[i];
+                    const pathToMerge = AppState.paths[pathToMergeIndex];
+                    
+                    // Determine if we need to reverse the path to merge
+                    const baseStart = basePath.points[0].p;
+                    const baseEnd = basePath.points[basePath.points.length - 1].p;
+                    const mergeStart = pathToMerge.points[0].p;
+                    const mergeEnd = pathToMerge.points[pathToMerge.points.length - 1].p;
+                    
+                    // Find the closest connection points
+                    const distStartStart = Math.hypot(baseStart.x - mergeStart.x, baseStart.y - mergeStart.y);
+                    const distStartEnd = Math.hypot(baseStart.x - mergeEnd.x, baseStart.y - mergeEnd.y);
+                    const distEndStart = Math.hypot(baseEnd.x - mergeStart.x, baseEnd.y - mergeStart.y);
+                    const distEndEnd = Math.hypot(baseEnd.x - mergeEnd.x, baseEnd.y - mergeEnd.y);
+                    
+                    let mergePoints = [...pathToMerge.points];
+                    let needReverse = false;
+                    
+                    // Determine the best connection and if we need to reverse
+                    const minDist = Math.min(distStartStart, distStartEnd, distEndStart, distEndEnd);
+                    
+                    if (minDist === distEndStart) {
+                        // Base end to merge start - no reversal needed
+                    } else if (minDist === distStartEnd) {
+                        // Base start to merge end - reverse base path
+                        reversePathPoints(basePath);
+                        needReverse = true;
+                    } else if (minDist === distEndEnd) {
+                        // Base end to merge end - reverse merge path
+                        needReverse = true;
+                    } else if (minDist === distStartStart) {
+                        // Base start to merge start - reverse base path
+                        reversePathPoints(basePath);
+                    }
+                    
+                    // Reverse if needed
+                    if (needReverse) {
+                        mergePoints.reverse();
+                        // Swap cIn and cOut for each point after reversing
+                        mergePoints.forEach(pt => {
+                            const temp = pt.cIn;
+                            pt.cIn = pt.cOut;
+                            pt.cOut = temp;
+                        });
+                    }
+                    
+                    // Append the merge points to the base path
+                    basePath.points = basePath.points.concat(mergePoints);
+                    basePath.closed = false; // Keep it open after merging
+                }
+                
+                // Remove all the merged paths except the base one
+                for (let i = sortedIndices.length - 1; i > 0; i--) {
+                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${sortedIndices[i]}"]`);
+                    if(pathEl) pathEl.remove();
+                    AppState.paths.splice(sortedIndices[i], 1);
+                }
+                
+                // Update the base path in the DOM
+                updatePathD(basePathIndex);
+                
+                // Select only the merged path
+                AppState.selectedPathIndices = [basePathIndex];
+                rebuildCanvas();
+                setStatus(`Merged ${sortedIndices.length} paths into one.`);
+                return;
+            }
+            if (AppState.selectedPathIndices.length === 1) {
+                const idx = AppState.selectedPathIndices[0];
+                const path = AppState.paths[idx];
+                path.closed = !path.closed;
+                
+                if (path.closed) {
+                    const first = path.points[0];
+                    const last = path.points[path.points.length - 1];
+                    // Ensure the ends have handles that extend towards each other to allow curving
+                    // By default they might be flat on the anchor. We give them a bit of length.
+                    const dist = Math.hypot(first.p.x - last.p.x, first.p.y - last.p.y);
+                    const offset = dist * 0.25;
+                    if (dist > 0) {
+                        const dirX = (first.p.x - last.p.x) / dist;
+                        const dirY = (first.p.y - last.p.y) / dist;
+                        
+                        // If handle is effectively flat (on top of anchor), move it out
+                        if (Math.hypot(last.cOut.x - last.p.x, last.cOut.y - last.p.y) < 1) {
+                            last.cOut.x = last.p.x + dirX * offset;
+                            last.cOut.y = last.p.y + dirY * offset;
+                        }
+                        if (Math.hypot(first.cIn.x - first.p.x, first.cIn.y - first.p.y) < 1) {
+                            first.cIn.x = first.p.x - dirX * offset;
+                            first.cIn.y = first.p.y - dirY * offset;
+                        }
+                    }
+                    setStatus("Shape closed. Fill remains at " + (path.fillOpacity * 100) + "%.");
+                } else {
+                    // When opening, flatten the handles that were used for closing
+                    const first = path.points[0];
+                    const last = path.points[path.points.length - 1];
+                    first.cIn = { ...first.p };
+                    last.cOut = { ...last.p };
+                    setStatus("Shape opened.");
+                }
+                
+                updatePathD(idx);
+                renderSelectionHandles();
+                updateCloseShapeUI();
+                return;
+            } 
+            AppState.styles.autoClose = !AppState.styles.autoClose;
+            setStatus(AppState.styles.autoClose ? "New shapes will auto-close." : "New shapes will stay open.");
+            updateCloseShapeUI();
+        });
+        
+        function reversePathPoints(pathData) {
+            pathData.points.reverse();
+            pathData.points.forEach(pt => { const temp = pt.cIn; pt.cIn = pt.cOut; pt.cOut = temp; });
+        }
+        
+        // --- TRACE LOGIC ---
+
+        function traceColorAt(clientX, clientY) {
+            if (!AppState.referenceImage) return;
+            
+            const img = AppState.referenceImage;
+            const tempCanvas = document.getElementById('color-canvas');
+            const ctx = tempCanvas.getContext('2d', { willReadFrequently: true });
+
+            // 1. Map screen coordinates to image coordinates
+            const bgRect = UI.bgLayer.getBoundingClientRect();
+            const relX = clientX - bgRect.left;
+            const relY = clientY - bgRect.top;
+
+            const imgAspect = img.width / img.height;
+            const displayAspect = bgRect.width / bgRect.height;
+            let displayWidth, displayHeight, offsetX, offsetY;
+
+            if (imgAspect > displayAspect) {
+                displayWidth = bgRect.width; displayHeight = bgRect.width / imgAspect;
+                offsetX = 0; offsetY = (bgRect.height - displayHeight) / 2;
+            } else {
+                displayHeight = bgRect.height; displayWidth = bgRect.height * imgAspect;
+                offsetX = (bgRect.width - displayWidth) / 2; offsetY = 0;
+            }
+
+            // 2. Downscale for RAM conservation
+            const MAX_DIM = 400; 
+            let w = img.width;
+            let h = img.height;
+            const scale = Math.min(1, MAX_DIM / w, MAX_DIM / h);
+            w = Math.floor(w * scale);
+            h = Math.floor(h * scale);
+
+            tempCanvas.width = w;
+            tempCanvas.height = h;
+            ctx.drawImage(img, 0, 0, w, h);
+            
+            // Map click to canvas coordinates
+            const canvasX = Math.floor(((relX - offsetX) / displayWidth) * w);
+            const canvasY = Math.floor(((relY - offsetY) / displayHeight) * h);
+
+            if (canvasX < 0 || canvasX >= w || canvasY < 0 || canvasY >= h) return;
+
+            const imageData = ctx.getImageData(0, 0, w, h);
+            const data = imageData.data;
+
+            // 3. Get Target Color
+            const targetIdx = (canvasY * w + canvasX) * 4;
+            const targetColor = { r: data[targetIdx], g: data[targetIdx+1], b: data[targetIdx+2], a: data[targetIdx+3] };
+            
+            if (targetColor.a === 0) { setStatus("Cannot trace transparent area."); return; }
+
+            // 4. Flood Fill (Optimized)
+            const mask = new Uint8Array(w * h); 
+            const bufferSize = w * h * 2;
+            const queue = new Int32Array(bufferSize);
+            let head = 0, tail = 0;
+            
+            const tolerance = 32; 
+            const match = (idx) => {
+                const r=data[idx], g=data[idx+1], b=data[idx+2], a=data[idx+3];
+                return a > 15 && 
+                       Math.abs(r - targetColor.r) <= tolerance &&
+                       Math.abs(g - targetColor.g) <= tolerance &&
+                       Math.abs(b - targetColor.b) <= tolerance;
+            };
+
+            queue[tail++] = canvasX; queue[tail++] = canvasY;
+            mask[canvasY * w + canvasX] = 1;
+            
+            let pixelCount = 0;
+            const maxPixels = (w * h) * 0.5; 
+
+            while(head < tail) {
+                const cx = queue[head++];
+                const cy = queue[head++];
+                pixelCount++;
+                if(pixelCount > maxPixels) { setStatus("Area too large, aborted."); return; }
+                
+                if (cx > 0) { const idx = cy * w + (cx - 1); if (mask[idx] === 0 && match(idx * 4)) { mask[idx] = 1; queue[tail++] = cx - 1; queue[tail++] = cy; }}
+                if (cx < w - 1) { const idx = cy * w + (cx + 1); if (mask[idx] === 0 && match(idx * 4)) { mask[idx] = 1; queue[tail++] = cx + 1; queue[tail++] = cy; }}
+                if (cy > 0) { const idx = (cy - 1) * w + cx; if (mask[idx] === 0 && match(idx * 4)) { mask[idx] = 1; queue[tail++] = cx; queue[tail++] = cy - 1; }}
+                if (cy < h - 1) { const idx = (cy + 1) * w + cx; if (mask[idx] === 0 && match(idx * 4)) { mask[idx] = 1; queue[tail++] = cx; queue[tail++] = cy + 1; }}
+            }
+
+            // 5. Find Start Point for Contour Trace
+            // We find the first pixel on the left edge of the shape
+            let startX = -1, startY = -1;
+            for(let y = 0; y < h; y++) {
+                for(let x = 0; x < w; x++) {
+                    if (mask[y * w + x] === 1) {
+                        startX = x; startY = y;
+                        break;
+                    }
+                }
+                if(startX !== -1) break;
+            }
+            
+            if(startX === -1) { setStatus("Could not identify shape."); return; }
+
+            // 6. Moore-Neighbor Contour Tracing
+            // This algorithm walks the perimeter strictly, preventing "jumps" or "partial traces"
+            const contour = [];
+            let cx = startX, cy = startY;
+            
+            // 8-direction movement: N, NE, E, SE, S, SW, W, NW
+            const dX = [0, 1, 1, 1, 0, -1, -1, -1];
+            const dY = [-1, -1, 0, 1, 1, 1, 0, -1];
+            
+            // Start state: we "entered" the start pixel from the West (conceptually)
+            let backtrackDir = 6; // 6 is West
+            
+            let safety = 0;
+            do {
+                contour.push({x: cx, y: cy});
+                safety++;
+                if(safety > w*h) break; // Safety break
+
+                let foundNext = false;
+                // Start searching clockwise from the backtrack direction
+                let searchDir = (backtrackDir + 1) % 8;
+                
+                for(let i = 0; i < 8; i++) {
+                    let checkDir = (searchDir + i) % 8;
+                    let nx = cx + dX[checkDir];
+                    let ny = cy + dY[checkDir];
+
+                    if (nx >= 0 && nx < w && ny >= 0 && ny < h) {
+                        if (mask[ny * w + nx] === 1) {
+                            cx = nx;
+                            cy = ny;
+                            backtrackDir = (checkDir + 4) % 8; // Opposite of how we entered
+                            foundNext = true;
+                            break;
+                        }
+                    }
+                }
+                
+                if(!foundNext) break; // Isolated pixel
+            
+            } while (!(cx === startX && cy === startY));
+
+            // 7. Simplify (Aggressive to get "Basic Shape")
+            const simplifiedPixels = ramerDouglasPeucker(contour, 4.0);
+            
+            // 8. Convert to World Coordinates
+            const points = simplifiedPixels.map(p => {
+                const imgX = p.x / scale;
+                const imgY = p.y / scale;
+                const worldX = (imgX / img.width) * displayWidth + offsetX + bgRect.left;
+                const worldY = (imgY / img.height) * displayHeight + offsetY + bgRect.top;
+                const pt = getSVGPoint(worldX, worldY);
+                return { x: pt.x, y: pt.y };
+            });
+
+            if (points.length < 3) { setStatus("Trace failed (points < 3)."); return; }
+
+            // 9. Create Path
+            const splinePoints = calculateControlPoints(points);
+
+            const newPath = {
+                strokeColor: AppState.styles.strokeColor,
+                fillColor: 'none',
+                strokeOpacity: 1,
+                fillOpacity: 0,
+                width: parseInt(AppState.styles.width) || 2,
+                points: splinePoints,
+                closed: true
+            };
+            
+            saveState();
+            AppState.paths.push(newPath);
+            AppState.selectedPathIndices = [AppState.paths.length - 1];
+            rebuildCanvas();
+            setStatus("Outline traced.");
+            
+            setMode('select');
+        }
+
+        function setMode(newMode) {
+            AppState.mode = newMode;
+            updateFabIcon();
+            
+            if (newMode === 'draw') {
+                UI.body.className = 'mode-draw';
+                UI.btnDraw.classList.add('active'); UI.btnSelect.classList.remove('active');
+                AppState.selectedPathIndices = []; updateSelectionVisuals();
+                setStatus("<b>Draw Mode:</b> Sketch freely.");
+                
+                // Draw Mode: Toolbar minimizes, FAB is visible on the LEFT.
+                UI.toolbar.classList.add('minimized');
+                UI.fab.classList.add('visible');
+                UI.fab.classList.remove('fab-right'); 
+                
+            } else if (newMode === 'trace') {
+                UI.body.className = 'mode-select'; 
+                UI.btnDraw.classList.remove('active'); 
+                UI.btnSelect.classList.remove('active');
+                setStatus("<b>Trace Mode:</b> Click a color region.");
+            } else {
+                stopDrawing(); 
+                UI.body.className = 'mode-select';
+                UI.btnSelect.classList.add('active'); UI.btnDraw.classList.remove('active');
+                setStatus("Select Mode. <b>Right Click</b> or <b>2 Fingers</b> to Pan.");
+                
+                // Select Mode: Toolbar opens, FAB moves to the RIGHT to avoid overlap.
+                UI.toolbar.classList.remove('minimized');
+                UI.fab.classList.add('visible');
+                UI.fab.classList.add('fab-right');
+            }
+        }
+
+        // --- CORE INTERACTION LOGIC ---
+
+        window.addEventListener('mousemove', (e) => {
+            AppState.lastMouse.x = e.clientX; AppState.lastMouse.y = e.clientY;
+            if (AppState.isPanning) {
+                const dx = e.clientX - AppState.panStartMouse.x; const dy = e.clientY - AppState.panStartMouse.y;
+                AppState.view.x += dx; AppState.view.y += dy;
+                AppState.panStartMouse = { x: e.clientX, y: e.clientY };
+                updateViewportTransform();
+                return;
+            }
+            const pt = getSVGPoint(e.clientX, e.clientY);
+            
+            // LOGIC: Toolbar runs in Draw Mode if it is OPEN.
+            // The FAB is ignored here so it never runs.
+            if (AppState.mode === 'draw' && !UI.toolbar.classList.contains('minimized')) {
+                checkToolbarProximity(e.clientX);
+            }
+            
+            if (AppState.mode === 'draw') {
+                if (!AppState.isDrawing) startDrawing(pt.x, pt.y);
+                else drawMove(pt.x, pt.y);
+            } else {
+                if (AppState.isMovingPivot || AppState.isRotating || AppState.isDraggingHandle || AppState.isDraggingPath || AppState.isDraggingSegment) {
+                    processDrag(e, pt.x, pt.y);
+                }
+                else if (AppState.isBoxSelecting) {
+                    const x = Math.min(AppState.boxStart.x, pt.x); const y = Math.min(AppState.boxStart.y, pt.y);
+                    const w = Math.abs(pt.x - AppState.boxStart.x); const h = Math.abs(pt.y - AppState.boxStart.y);
+                    UI.selectionRect.setAttribute('x', x); UI.selectionRect.setAttribute('y', y);
+                    UI.selectionRect.setAttribute('width', w); UI.selectionRect.setAttribute('height', h);
+                }
+            }
+        });
+        
+        // --- Mouse Wheel Zoom (Ctrl + Scroll) ---
+        window.addEventListener('wheel', (e) => {
+            // Check if Ctrl (Windows/Linux) or Meta (Mac/Command) is pressed
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault(); // Prevent default browser zoom/scroll
+                
+                // Determine zoom factor
+                // deltaY < 0 means scroll up (Zoom In)
+                // deltaY > 0 means scroll down (Zoom Out)
+                const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                
+                // Call the existing zoom function using mouse position
+                zoom(factor, e.clientX, e.clientY);
+            }
+        }, { passive: false }); // passive: false is required to use preventDefault()
+
+        UI.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        UI.app.addEventListener('mousedown', (e) => {
+            if (e.target.closest('#toolbar') || e.target.closest('#help-panel') || e.target.closest('#fab')) return;
+            
+            // HANDLE TRACE MODE
+            if (AppState.mode === 'trace') {
+                if (e.button === 2) { // Allow panning with right click
+                    AppState.isPanning = true; 
+                    AppState.panStartMouse = { x: e.clientX, y: e.clientY }; 
+                    UI.body.classList.add('panning'); 
+                    return; 
+                }
+                if (e.button === 0) {
+                    traceColorAt(e.clientX, e.clientY);
+                    return; // Don't proceed to selection logic
+                }
+            }
+
+            // ... EXISTING LOGIC ...
+            if (e.button === 2) { AppState.isPanning = true; AppState.panStartMouse = { x: e.clientX, y: e.clientY }; UI.body.classList.add('panning'); return; }
+            // ...
+            
+            if (e.button === 2) { AppState.isPanning = true; AppState.panStartMouse = { x: e.clientX, y: e.clientY }; UI.body.classList.add('panning'); return; }
+            if (AppState.mode === 'draw') { if (AppState.colorPickerActive && AppState.selectedColorInput) pickColorFromReference(e.clientX, e.clientY); return; }
+
+            const isHandle = e.target.tagName === 'rect' || e.target.tagName === 'circle';
+            const isPath = e.target.classList.contains('path-element');
+            const isClosingLine = e.target.classList.contains('handle-closing-line');
+            const isMover = e.target.closest('.path-mover-group');
+            const isRotationHandle = e.target.closest('.rotation-handle-group');
+
+            if (isRotationHandle) { /* handled by its own listener */ }
+            else if (isClosingLine) { const clickedIndex = parseInt(e.target.dataset.index); startDraggingSegment(e, clickedIndex); }
+            else if (isPath) { const clickedIndex = parseInt(e.target.dataset.index); startDraggingSegment(e, clickedIndex); }
+            else if (!isHandle && !isMover) {
+                if (AppState.colorPickerActive && AppState.selectedColorInput) pickColorFromReference(e.clientX, e.clientY);
+                else {
+                    if (!e.shiftKey) toggleSelection(-1, false);
+                    AppState.isBoxSelecting = true;
+                    const pt = getSVGPoint(e.clientX, e.clientY);
+                    AppState.boxStart = pt;
+                    UI.selectionRect.setAttribute('x', pt.x); UI.selectionRect.setAttribute('y', pt.y);
+                    UI.selectionRect.setAttribute('width', 0); UI.selectionRect.setAttribute('height', 0);
+                    UI.selectionRect.style.display = 'block';
+                }
+            }
+        });
+
+        window.addEventListener('mouseup', () => {
+            if (AppState.mode === 'draw') { stopDrawing(); }
+            else { stopDrag(); }
+            if (AppState.isPanning) { AppState.isPanning = false; UI.body.classList.remove('panning'); }
+            if (AppState.isBoxSelecting) {
+                AppState.isBoxSelecting = false;
+                UI.selectionRect.style.display = 'none';
+                const boxX = parseFloat(UI.selectionRect.getAttribute('x')); const boxY = parseFloat(UI.selectionRect.getAttribute('y'));
+                const boxW = parseFloat(UI.selectionRect.getAttribute('width')); const boxH = parseFloat(UI.selectionRect.getAttribute('height'));
+                if (boxW > 5 || boxH > 5) {
+                    AppState.paths.forEach((path, index) => {
+                        const pathEl = UI.layerPaths.querySelector(`path[data-index="${index}"]`) || UI.layerPathsActive.querySelector(`path[data-index="${index}"]`);
+                        if (pathEl) {
+                            const bbox = pathEl.getBBox();
+                            if (boxX < bbox.x + bbox.width && boxX + boxW > bbox.x && boxY < bbox.y + bbox.height && boxY + boxH > bbox.y) {
+                                if (!AppState.selectedPathIndices.includes(index)) AppState.selectedPathIndices.push(index);
+                            }
+                        }
+                    });
+                    if (AppState.selectedPathIndices.length > 0) updateSelectionVisuals();
+                }
+            }
+        });
+
+        // Touch Support
+        let initialPinchDistance = null;
+        let initialPinchZoom = 1;
+        UI.canvas.addEventListener('touchstart', (e) => {
+            if (e.touches.length === 2) {
+                e.preventDefault(); AppState.isPanning = true;
+                const dx = (e.touches[0].clientX + e.touches[1].clientX) / 2; const dy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                AppState.panStartMouse = { x: dx, y: dy };
+                initialPinchDistance = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                initialPinchZoom = AppState.view.zoom;
+            }
+        }, { passive: false });
+
+        UI.canvas.addEventListener('touchmove', (e) => {
+            if (AppState.isPanning && e.touches.length === 2) {
+                e.preventDefault();
+                const dx = (e.touches[0].clientX + e.touches[1].clientY) / 2; const dy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+                const moveX = dx - AppState.panStartMouse.x; const moveY = dy - AppState.panStartMouse.y;
+                AppState.view.x += moveX; AppState.view.y += moveY;
+                const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+                if (initialPinchDistance) {
+                    const newZoom = Math.max(0.1, Math.min(5, initialPinchZoom * (dist / initialPinchDistance)));
+                    const scaleChange = newZoom / AppState.view.zoom;
+                    AppState.view.x = dx - (dx - AppState.view.x) * scaleChange; AppState.view.y = dy - (dy - AppState.view.y) * scaleChange;
+                    AppState.view.zoom = newZoom;
+                    initialPinchDistance = dist; initialPinchZoom = newZoom;
+                }
+                AppState.panStartMouse = { x: dx, y: dy }; updateViewportTransform();
+            }
+        }, { passive: false });
+
+        UI.canvas.addEventListener('touchend', (e) => { if (AppState.isPanning && e.touches.length < 2) { AppState.isPanning = false; UI.body.classList.remove('panning'); initialPinchDistance = null; } });
+
+
+        window.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                zoom(factor, e.clientX, e.clientY);
+            }
+        }, { passive: false });
+
+
+       window.addEventListener('keydown', (e) => {
+            const key = e.key.toLowerCase();
+            
+            // Copy (Ctrl+C)
+            if ((e.ctrlKey || e.metaKey) && key === 'c') {
+                if (AppState.selectedPathIndices.length > 0) {
+                    copySelectedPaths();
+                    setStatus(`Copied ${AppState.selectedPathIndices.length} path(s).`);
+                }
+                return;
+            }
+
+            // Paste (Ctrl+V)
+            if ((e.ctrlKey || e.metaKey) && key === 'v') {
+                if (AppState.clipboard) {
+                    pasteClipboard();
+                }
+                return;
+            }
+            
+            // Duplicate (D or Ctrl+D)
+            if (key === 'd') {
+                if (AppState.selectedPathIndices.length > 0) {
+                    e.preventDefault(); // Prevent bookmark shortcut
+                    duplicateSelectedPaths();
+                    return;
+                }
+            }
+
+            // Pan with Ctrl + Arrow Keys
+            if ((e.ctrlKey || e.metaKey) && e.key.startsWith('Arrow')) {
+                const panAmount = 50; 
+                switch (e.key) {
+                    case 'ArrowLeft': AppState.view.x += panAmount; break;
+                    case 'ArrowRight': AppState.view.x -= panAmount; break;
+                    case 'ArrowUp': AppState.view.y += panAmount; break;
+                    case 'ArrowDown': AppState.view.y -= panAmount; break;
+                }
+                e.preventDefault(); 
+                updateViewportTransform();
+                return;
+            }
+            
+            // Standard Keys
+            if (key === '+' || key === '=' || key === 'i') { zoom(1.2); return; }
+            if (key === '-' || key === '_' || key === 'o') { zoom(0.8); return; }
+            if (key === ',' || key === '0') { resetView(); return; }
+            
+            if (e.code === 'Space') { 
+                e.preventDefault(); 
+                setMode(AppState.mode === 'draw' ? 'select' : 'draw'); 
+                return; 
+            }
+            
+            if (key === 'x') { toggleToolbar(); return; }
+
+            // Undo/Redo (Ctrl+Z, Ctrl+Y, or single Z/Y)
+            if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); undo(); }
+            else if ((e.ctrlKey || e.metaKey) && key === 'y') { e.preventDefault(); redo(); }
+            else if (key === 'z') { undo(); }
+            else if (key === 'y') { redo(); }
+            
+            else if (key === 'delete' || key === 'backspace') { 
+                if (AppState.selectedPathIndices.length > 0) deleteSelectedPaths(); 
+                else clearBackground(); 
+            }
+            else if (key === 'h') { flipSelectedPaths('horizontal'); return; }
+            else if (key === 'v') { 
+                // Note: Ctrl+V is handled at the top. This handles 'V' for vertical flip.
+                flipSelectedPaths('vertical'); 
+                return; 
+            }
+        });
+
+        function clearBackground() { UI.bgLayer.style.backgroundImage = 'none'; AppState.referenceImage = null; setStatus("Background cleared."); }
+
+        function updateStyleProperty(key, value, isFloat = false) {
+            AppState.styles[key] = isFloat ? parseFloat(value) : value;
+            if (AppState.selectedPathIndices.length > 0) {
+                AppState.selectedPathIndices.forEach(idx => {
+                    const pathData = AppState.paths[idx]; pathData[key] = AppState.styles[key];
+                    const pathEl = UI.layerPaths.querySelector(`path[data-index="${idx}"]`) || UI.layerPathsActive.querySelector(`path[data-index="${idx}"]`);
+                    if (pathEl) {
+                        if(key === 'strokeColor') pathEl.setAttribute("stroke", value); if(key === 'fillColor') pathEl.setAttribute("fill", value);
+                        if(key === 'width') pathEl.setAttribute("stroke-width", value); if(key === 'strokeOpacity') pathEl.setAttribute("stroke-opacity", value);
+                        if(key === 'fillOpacity') pathEl.setAttribute("fill-opacity", value);
+                    }
+                });
+            }
+        }
+
+        UI.widthSlider.addEventListener('input', (e) => { const val = e.target.value; updateStyleProperty('width', val); UI.widthVal.textContent = val + "px"; });
+        UI.widthSlider.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.strokeColor.addEventListener('input', (e) => updateStyleProperty('strokeColor', e.target.value));
+        UI.strokeColor.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.fillColor.addEventListener('input', (e) => updateStyleProperty('fillColor', e.target.value));
+        UI.fillColor.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.strokeOpacity.addEventListener('input', (e) => updateStyleProperty('strokeOpacity', e.target.value, true));
+        UI.strokeOpacity.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+        UI.fillOpacity.addEventListener('input', (e) => updateStyleProperty('fillOpacity', e.target.value, true));
+        UI.fillOpacity.addEventListener('change', () => { if(AppState.selectedPathIndices.length > 0) saveState(); });
+
+        function deleteSelectedPaths() {
+            if (AppState.selectedPathIndices.length === 0) return;
+            const indicesToDelete = [...AppState.selectedPathIndices].sort((a, b) => b - a);
+            saveState();
+            indicesToDelete.forEach(idx => {
+                let pathEl = UI.layerPaths.querySelector(`path[data-index="${idx}"]`);
+                if (!pathEl) pathEl = UI.layerPathsActive.querySelector(`path[data-index="${idx}"]`);
+                if (pathEl) pathEl.remove();
+                AppState.paths.splice(idx, 1);
+            });
+            AppState.selectedPathIndices = []; clearHandles();
+            const allPaths = Array.from(UI.layerPaths.children).concat(Array.from(UI.layerPathsActive.children));
+            allPaths.forEach((el, idx) => el.dataset.index = idx);
+            updateSelectionVisuals();
+        }
+        UI.btnDelete.addEventListener('click', deleteSelectedPaths);
+        
+        function copySelectedPaths() {
+            if (AppState.selectedPathIndices.length === 0) return;
+            // Store deep copies of selected paths, preserving their relative order
+            const sortedIndices = [...AppState.selectedPathIndices].sort((a, b) => a - b);
+            AppState.clipboard = sortedIndices.map(idx => JSON.parse(JSON.stringify(AppState.paths[idx])));
+        }
+        
+                function getSelectionBoundingBox() {
+            if (AppState.selectedPathIndices.length === 0) return null;
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            
+            AppState.selectedPathIndices.forEach(idx => {
+                const path = AppState.paths[idx];
+                if (!path || !path.points) return;
+                path.points.forEach(pt => {
+                    minX = Math.min(minX, pt.p.x);
+                    minY = Math.min(minY, pt.p.y);
+                    maxX = Math.max(maxX, pt.p.x);
+                    maxY = Math.max(maxY, pt.p.y);
+                });
+            });
+            
+            if (minX === Infinity) return null;
+            
+            return {
+                x: minX, y: minY, 
+                width: maxX - minX, height: maxY - minY,
+                cx: (minX + maxX) / 2, 
+                cy: (minY + maxY) / 2
+            };
+        }
+
+        function flipSelectedPaths(direction) {
+            if (AppState.selectedPathIndices.length === 0) return;
+            
+            saveState();
+            
+            const bbox = getSelectionBoundingBox();
+            if (!bbox) return;
+            
+            const axis = direction === 'horizontal' ? bbox.cx : bbox.cy;
+            
+            AppState.selectedPathIndices.forEach(idx => {
+                const path = AppState.paths[idx];
+                path.points.forEach(pt => {
+                    // Flip Anchor
+                    if (direction === 'horizontal') {
+                        pt.p.x = 2 * axis - pt.p.x;
+                        pt.cIn.x = 2 * axis - pt.cIn.x;
+                        pt.cOut.x = 2 * axis - pt.cOut.x;
+                    } else {
+                        pt.p.y = 2 * axis - pt.p.y;
+                        pt.cIn.y = 2 * axis - pt.cIn.y;
+                        pt.cOut.y = 2 * axis - pt.cOut.y;
+                    }
+                });
+                
+                // Flip Rotation Pivot
+                if (path.rotationPivot) {
+                    if (direction === 'horizontal') {
+                        path.rotationPivot.x = 2 * axis - path.rotationPivot.x;
+                    } else {
+                        path.rotationPivot.y = 2 * axis - path.rotationPivot.y;
+                    }
+                }
+                
+                updatePathD(idx);
+            });
+            
+            renderSelectionHandles();
+            setStatus(`Flipped ${direction}ly.`);
+        }
+
+        function pasteClipboard(offset = {x: 20, y: 20}) {
+            if (!AppState.clipboard || AppState.clipboard.length === 0) return;
+            saveState();
+
+            const newIndices = [];
+            
+            // Append new paths to the end of the current paths array
+            AppState.clipboard.forEach(pathData => {
+                // Apply the offset to all points
+                pathData.points.forEach(pt => {
+                    pt.p.x += offset.x;
+                    pt.p.y += offset.y;
+                    pt.cIn.x += offset.x;
+                    pt.cIn.y += offset.y;
+                    pt.cOut.x += offset.x;
+                    pt.cOut.y += offset.y;
+                });
+                
+                // Update rotation pivot if it exists
+                if (pathData.rotationPivot) {
+                    pathData.rotationPivot.x += offset.x;
+                    pathData.rotationPivot.y += offset.y;
+                }
+
+                AppState.paths.push(pathData);
+                newIndices.push(AppState.paths.length - 1);
+            });
+
+            // Select the newly created paths
+            AppState.selectedPathIndices = newIndices;
+            rebuildCanvas();
+            updateSelectionVisuals();
+            setStatus(`Pasted ${newIndices.length} shape(s).`);
+        }
+        
+        function duplicateSelectedPaths() {
+            if (AppState.selectedPathIndices.length === 0) return;
+            
+            // 1. Copy current selection to clipboard
+            copySelectedPaths();
+            
+            // 2. Paste with offset (Offset is handled inside pasteClipboard)
+            pasteClipboard({x: 0, y: 0});
+        }
+
+        UI.btnClear.addEventListener('click', () => {
+            saveState();
+            AppState.paths = []; AppState.selectedPathIndices = [];
+            UI.layerPaths.innerHTML = ''; UI.layerPathsActive.innerHTML = ''; UI.layerHandles.innerHTML = '';
+            updateSelectionVisuals(); setStatus("Canvas cleared.");
+        });
+
+        UI.btnExport.addEventListener('click', () => {
+            if (AppState.paths.length === 0) { setStatus("No paths to export."); return; }
+            const svgContent = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+            svgContent.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+            svgContent.setAttribute("viewBox", `0 0 ${window.innerWidth} ${window.innerHeight}`);
+            AppState.paths.forEach(pathData => {
+                const pathEl = document.createElementNS("http://www.w3.org/2000/svg", "path");
+                pathEl.setAttribute("stroke", pathData.strokeColor); pathEl.setAttribute("stroke-width", pathData.width);
+                pathEl.setAttribute("stroke-opacity", pathData.strokeOpacity !== undefined ? pathData.strokeOpacity : 1);
+                pathEl.setAttribute("fill", pathData.fillColor); pathEl.setAttribute("fill-opacity", pathData.fillOpacity !== undefined ? pathData.fillOpacity : 0);
+                pathEl.setAttribute("stroke-linecap", "round"); pathEl.setAttribute("stroke-linejoin", "round");
+                const pts = pathData.points;
+                let d = `M ${pts[0].p.x.toFixed(1)} ${pts[0].p.y.toFixed(1)}`;
+                for (let i = 0; i < pts.length - 1; i++) { const p1 = pts[i]; const p2 = pts[i+1]; d += ` C ${p1.cOut.x.toFixed(1)} ${p1.cOut.y.toFixed(1)}, ${p2.cIn.x.toFixed(1)} ${p2.cIn.y.toFixed(1)}, ${p2.p.x.toFixed(1)} ${p2.p.y.toFixed(1)}`; }
+                if (pathData.closed) { const first = pts[0]; const last = pts[pts.length - 1]; d += ` C ${last.cOut.x.toFixed(1)} ${last.cOut.y.toFixed(1)}, ${first.cIn.x.toFixed(1)} ${first.cIn.y.toFixed(1)}, ${first.p.x.toFixed(1)} ${first.p.y.toFixed(1)} Z`; }
+                pathEl.setAttribute("d", d); svgContent.appendChild(pathEl);
+            });
+            const serializer = new XMLSerializer();
+            let source = serializer.serializeToString(svgContent);
+            if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)) source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+            const blob = new Blob([source], {type: "image/svg+xml;charset=utf-8"});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a"); link.href = url; link.download = `slidus_${new Date().toISOString()}.svg`; link.style.display = 'none';
+            document.body.appendChild(link); link.click();
+            setTimeout(() => { document.body.removeChild(link); URL.revokeObjectURL(url); setStatus("SVG exported."); }, 100);
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => { UI.app.addEventListener(eventName, preventDefaults, false); document.body.addEventListener(eventName, preventDefaults, false); });
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+        UI.app.addEventListener('dragenter', () => document.body.classList.add('drag-over'));
+        UI.app.addEventListener('dragleave', (e) => { if (e.relatedTarget && !UI.app.contains(e.relatedTarget)) document.body.classList.remove('drag-over'); });
+        UI.app.addEventListener('drop', (e) => { document.body.classList.remove('drag-over'); const dt = e.dataTransfer; const files = dt.files; if (files.length > 0) handleFiles(files); });
+
+        function handleFiles(files) {
+            const file = files[0];
+            if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onloadend = function() { const img = new Image(); img.crossOrigin = "Anonymous"; img.onload = function() { AppState.referenceImage = img; UI.bgLayer.style.backgroundImage = `url('${reader.result}')`; setStatus("Background set."); }; img.src = reader.result; }
+                return;
+            }
+            if (file.type === 'image/svg+xml' || file.name.endsWith('.svg')) {
+                const isEmpty = AppState.paths.length === 0;
+                if (isEmpty) {
+                    const reader = new FileReader();
+                    reader.readAsText(file);
+                    reader.onloadend = function() {
+                        try {
+                            const parser = new DOMParser(); const doc = parser.parseFromString(reader.result, "image/svg+xml"); const svgPaths = doc.querySelectorAll('path');
+                            if (svgPaths.length > 0) {
+                                saveState(); let importedCount = 0;
+                                svgPaths.forEach(p => {
+                                    const d = p.getAttribute('d'); if(!d) return; const newPoints = parsePathDToPoints(d);
+                                    if(newPoints.length > 0) {
+                                        const newPath = { strokeColor: p.getAttribute('stroke') || '#ffffff', fillColor: p.getAttribute('fill') || '#000000', strokeOpacity: p.getAttribute('stroke-opacity') || 1, fillOpacity: p.getAttribute('fill-opacity') || 0, width: parseInt(p.getAttribute('stroke-width')) || 4, points: newPoints, closed: d.trim().endsWith('Z') };
+                                        AppState.paths.push(newPath); importedCount++;
+                                    }
+                                });
+                                rebuildCanvas(); setStatus(`Imported ${importedCount} paths.`);
+                            }
+                        } catch (err) { console.error(err); setStatus("Error parsing SVG."); }
+                    }
+                } else {
+                    const reader = new FileReader();
+                    reader.readAsDataURL(file);
+                    reader.onloadend = function() { const img = new Image(); img.crossOrigin = "Anonymous"; img.onload = function() { AppState.referenceImage = img; UI.bgLayer.style.backgroundImage = `url('${reader.result}')`; setStatus("SVG set as background."); }; img.src = reader.result; }
+                }
+            }
+        }
+
+        function parsePathDToPoints(d) {
+            const result = []; const commands = d.match(/[a-zA-Z][^a-zA-Z]*/g);
+            if(!commands) return [];
+            let currentX = 0, currentY = 0; let startX = 0, startY = 0;
+            commands.forEach(cmd => {
+                const type = cmd[0];
+                const args = cmd.slice(1).trim().split(/[\s,]+/).map(Number).filter(n => !isNaN(n));
+                if (type === 'M' || type === 'm') {
+                    let x = args[0], y = args[1]; if (type === 'm') { x += currentX; y += currentY; }
+                    result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} }); currentX = x; currentY = y; startX = x; startY = y;
+                    for(let i=2; i<args.length; i+=2) { x = args[i]; y = args[i+1]; if (type === 'm') { x += currentX; y += currentY; } result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} }); currentX = x; currentY = y; }
+                } else if (type === 'L' || type === 'l') {
+                    for(let i=0; i<args.length; i+=2) { let x = args[i], y = args[i+1]; if (type === 'l') { x += currentX; y += currentY; } result.push({ p: {x, y}, cIn: {x, y}, cOut: {x, y} }); currentX = x; currentY = y; }
+                } else if (type === 'C' || type === 'c') {
+                    for(let i=0; i<args.length; i+=6) {
+                        let cp1x = args[i], cp1y = args[i+1]; let cp2x = args[i+2], cp2y = args[i+3]; let x = args[i+4], y = args[i+5];
+                        if (type === 'c') { cp1x += currentX; cp1y += currentY; cp2x += currentX; cp2y += currentY; x += currentX; y += currentY; }
+                        if (result.length > 0) result[result.length-1].cOut = {x: cp1x, y: cp1y};
+                        result.push({ p: {x, y}, cIn: {x: cp2x, y: cp2y}, cOut: {x, y} }); currentX = x; currentY = y;
+                    }
+                } else if (type === 'Z' || type === 'z') { currentX = startX; currentY = startY; }
+            });
+            return result;
+        }
+        
+        // --- PAN CONTROLS LOGIC ---
+        let panInterval = null;
+        const panAmount = 50;
+
+        UI.panControls.querySelectorAll('.pan-btn').forEach(btn => {
+            const startPan = (e) => {
+                e.preventDefault(); 
+                const dir = btn.dataset.dir;
+                
+                const doPan = () => {
+                    if (dir === 'left') AppState.view.x += panAmount;
+                    else if (dir === 'right') AppState.view.x -= panAmount;
+                    else if (dir === 'up') AppState.view.y += panAmount;
+                    else if (dir === 'down') AppState.view.y -= panAmount;
+                    updateViewportTransform();
+                };
+                
+                doPan(); // Pan immediately on click
+                panInterval = setInterval(doPan, 100); // Repeat while holding
+            };
+            
+            const stopPan = () => {
+                clearInterval(panInterval);
+            };
+            
+            btn.addEventListener('mousedown', startPan);
+            btn.addEventListener('touchstart', startPan);
+            window.addEventListener('mouseup', stopPan);
+            window.addEventListener('touchend', stopPan);
+            
+        window.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) {
+                e.preventDefault();
+                const factor = e.deltaY < 0 ? 1.1 : 0.9;
+                zoom(factor, e.clientX, e.clientY);
+            }
+        }, { passive: false });
+
+        });
+
+        setMode('select');
+    </script>
+</body>
+</html>
