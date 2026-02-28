@@ -26,8 +26,7 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - Rotare path: Drag **Circled X**, if holding Ctrl (before dragging) you'll drag the pivot
 - Zoom In: **+** / **i** / **spread fingers**
 - Zoom Out: **-** / **o** / **pinch fingers**
-- Pan: **hold right mouse-button + drag** / **2 finger drag**
-- The browsers own zoom still works with *Ctrl+Mouse Wheel* which is misleading as it is not handled by the Application as zooming
+- Pan: **hold right mouse-button + drag** / **2 finger drag**«
 
 ### Select Mode
 - White Square = **Anchor**, drag these by pressing and moving while holding
