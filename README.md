@@ -17,8 +17,9 @@ Graphics tablet: https://en.wikipedia.org/wiki/Graphics_tablet
 - **x** / **Click on Circle** : Show Toolbar
 
 ### Any Mode
-- Undo: **z** / **Ctrl+z**
-- Reso: **y** / **Ctrl+y**
+- Help: **Help button**
+- Undo: **Undo button** / **z** / **Ctrl+z**
+- Reso: **Redo button** / **y** / **Ctrl+y**
 - Copy: **Ctrl+c**
 - Paste: **Ctrl+v**
 - Duplicate: **d** / **Ctrl+d**
