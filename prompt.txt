@@ -1,0 +1,178 @@
+Act as a Senior Front-End Engineer specializing in 2D interactive web tools. Your task is to build a single-file HTML application named "Slidus", a vector drawing tool that converts rough freehand sketches into smooth cubic Bezier curves. 
+Technical Constraints 
+
+    Format: Single standalone HTML file (HTML, CSS, JS combined). No external assets or libraries. 
+    Tech Stack: Vanilla JavaScript (ES6+), HTML5, CSS3. No frameworks (React, Vue, etc.). 
+    UI/UX: No alerts, it's what-you-see-is-what-you-get.
+    Responsiveness: The canvas must fill the entire screen (100vw, 100vh). The UI should float over the canvas. 
+
+Design & Layout 
+
+     Theme: Dark mode. Background #1e1e24, Panels #2b2b36, Accent #4a90e2.
+     Canvas: An SVG layer covering the full viewport.
+     Background Layer: A div behind the SVG for reference images. Users must be able to drag-and-drop an image file onto this layer to set it as a background.
+     Toolbar:
+         A floating panel (approx. 280px wide) containing tools and style controls.
+         Smart Positioning: The toolbar must detect if the cursor is approaching it while in "Draw Mode." If the cursor gets too close, the toolbar must smoothly slide to the opposite side of the screen (Left <-> Right) to avoid obstructing the drawing.
+         Minimization: A "close" button minimizes the toolbar into a Floating Action Button (FAB). The FAB icon changes based on the current tool (Draw/Select).
+
+Core Features & Logic
+1. Drawing Mode (Freehand) 
+ 
+     Interaction (Critical): Unlike standard tools, drawing must begin immediately when the mouse cursor moves in Draw Mode. No initial mouse click (mousedown) is required to start drawing.
+     Post-Processing (Crucial): When the mouse is released, do not simply connect the dots. You must process the path using this specific pipeline:
+        Capture: Store raw mouse points. 
+        Radial Distance Filter: Remove points that are too close to each other (threshold: ~5px). 
+        Ramer-Douglas-Peucker (RDP): Simplify the line geometry to remove jagged edges (tolerance: ~20). 
+        Visvalingam-Whyatt (Area Filter): Further optimize by removing points that form small triangular areas (threshold: ~400), creating gentle curves. 
+     Smoothing: Convert the simplified points into a Cubic Bezier path. Calculate control points using a tension algorithm (approx 0.25) to ensure the curve flows smoothly through the anchors.
+     
+
+2. Select & Edit Mode 
+
+     Selection: Click a path to select it. The selected path should visually move to the top of the z-index (rendered last in the SVG).
+     Visualization: Upon selection, render the following handles:
+         Anchors (Nodes): Small squares at the Bezier points.
+         Controls: Small circles at the Bezier control handles (cIn/cOut).
+         Connecting Lines: Thin lines connecting anchors to their control handles.
+         Path Mover: A "Cross" icon at the top-left of the bounding box to drag the entire path.
+         
+     Editing Interactions:
+         Drag Anchor: Moves the point and its associated control handles together.
+         Drag Control Handle: Changes the curvature of the segment (moves cIn or cOut).
+         Drag Segment: Clicking and dragging between two anchors moves both control handles of that segment simultaneously (adjusting curve tension without moving the anchors).
+         Delete Point: Double-click an Anchor (square) to remove it.
+         Split Segment: Double-click on a path segment (between anchors) to insert a new anchor at that location using De Casteljau's algorithm.
+         
+     
+
+3. Styling System 
+
+     Controls: Inputs for Stroke Color, Fill Color, Stroke Opacity, Fill Opacity, and Stroke Width (Slider 1-100px).
+     State Management: These controls function in two ways:
+        Default: Sets the style for the next path drawn. 
+        Contextual: If a path is selected, changing these values updates the selected path immediately. 
+     
+
+4. Data & History 
+
+     Undo/Redo: Implement a history stack (limit 50).
+         Ctrl+Z or Z to Undo.
+         Ctrl+Y or Y to Redo.
+         Save state on: Mouse up after drawing, Mouse up after dragging/editing, and property changes.
+         
+     Data Structure: Paths should be stored as objects containing style properties and an array of point objects (where each point has p for position, cIn for control in, and cOut for control out).
+     
+
+5. Utilities 
+
+     Export: A button to serialize the SVG paths to a clean .svg file string and trigger a browser download.
+     Clear All: A button to wipe the canvas (add a confirmation step).
+     Keyboard Shortcuts:
+         Space: Toggle between Draw and Select mode.
+         X: Toggle Toolbar visibility.
+         Delete / Backspace: Delete selected path.
+         
+     
+
+Mathematical Implementation Details 
+
+     De Casteljau's Algorithm: You must implement this to split a cubic Bezier curve into two segments at a specific t value (0.0 to 1.0) when adding a new point.
+     Hit Testing:
+         To detect clicks on a curve, sample the Bezier equation at small intervals (e.g., t=0.02) and check the distance from the mouse cursor to these sample points.
+         
+     
+
+Final Output 
+
+Generate the complete, single-file source code containing the HTML structure, the CSS styling (including the dark theme and animations), and the robust JavaScript logic described above. Ensure the code is clean, commented, and performs efficiently. 
+
+
+
+
+
+
+Act as a senior frontend engineer specializing in SVG manipulation. Create a single-page web application (HTML/CSS/JS) with the following specifications: 
+
+Core Logic & Modes: 
+
+     Implement two distinct modes: SELECT (default) and DRAW.
+     Use the SPACE key to toggle between modes. When switching, ensure any active drawing stops and any current selection is cleared.
+     
+
+The Floating UI (The "Circle"): 
+
+     Display a circular UI element indicating the current mode.
+     Interaction: Implement a "repulsion" effect. When the user's cursor approaches the circle, the circle should smoothly glide away to avoid being clicked.
+     Toggle: Clicking the circle opens a settings panel (see below).
+     
+
+Drawing System (DRAW Mode): 
+
+     Implement freehand drawing that tracks MOUSE-MOVE events.
+     Crucial: Drawing should be continuous (not click-to-click), smoothing the input into SVG Paths.
+     
+
+Editing System (SELECT Mode): 
+
+     Clicking a path selects it.
+     Visual Feedback: When selected, render interactive handles (nodes) at the start, end, and intermediate control points.
+     Manipulation:
+         Dragging a handle should adjust the curvature (Bezier control points) or position of the node.
+         Dragging the line body should move the entire path.
+         
+     
+
+Settings Panel: 
+
+     Triggered by clicking the Floating UI.
+     Must include a "Close (X)" button.
+     Controls:
+         Fill Color Picker.
+         Stroke Color Picker.
+         Opacity Slider.
+         "Export SVG" button (downloads the current canvas as an .svg file).
+         
+     
+
+Technical Constraints: 
+
+     No external libraries (use vanilla JS).
+     Single HTML file.
+     Use semantic HTML and modern CSS.
+     
+
+
+
+
+
+Make a single-page web application. It will draw an SVG with Paths.
+It has 2 modes, DRAW and SELECT, starting in SELECT mode. Show these in a circle and move it when the CURSOR get close.
+On pressing SPACE it switches modes and deselects or stops drawing accordingly.
+It draws free-hand paths on MOUSE-MOVE not click.
+Selecting shows handles at the start,end and any intermediate nodes when the line isn't linear, it is possible to drag the nodes and the line's curvature, effectively moving.
+Clicking the circle shows a panel with a close X, the fill and stroke color and sliders for opacity then buttons to Export the SVG.
+
+
+
+
+
+
+If pressed the circle becomes a tool-box with a fat close button on the corner and options to change the path's fill and stroke color as well as their stroke-width and a precision slider changing between Low and High, never making nodes between a line unless it's moving in a different direction.
+It is CRUCIAL that it switches modes on pressing SPACE.
+In Detailed Precision is should make a node every several pixels and minimal nodes when in Low Precision.
+Even in Low Precision mode it should keep drawing the path not wait several pixels.
+
+Add a way to pick transparent colors for fill and or stroke.
+
+when I lower precision and drag a node it moves as if it was still in high precision (that short part) instead of moving the wider portion.
+
+Starting point
+<!DOCTYPE html>
+<html>
+<head>
+<title>Slidus</title>
+</head>
+<body>
+</body>
+</html>
